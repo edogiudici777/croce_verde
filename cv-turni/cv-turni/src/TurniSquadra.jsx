@@ -20,7 +20,7 @@ function shareWhatsApp(text) {
 /* ---------- Config dominio ---------- */
 const CICLO_START = "2026-06-24";   // primo turno notturno
 const CICLO_GIORNI = 10;            // un turno ogni 10 giorni
-const GIORNI_AVANTI = 90;           // genera i turni fino a ~3 mesi nel futuro
+const N_TURNI_VISIBILI = 6;         // quanti turni del ciclo mostrare
 const EQUIPAGGI_PER_META = 2;       // 2 equipaggi prima, 2 dopo mezzanotte
 const GIORNI_SETT = ["Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
@@ -67,12 +67,6 @@ function addDays(date, n) {
 }
 function fmt(date) {
   return `${GIORNI_SETT[date.getDay()]} ${date.getDate()} ${MESI[date.getMonth()]}`;
-}
-// un turno è "passato" se la sua data è prima di oggi (mezzanotte di oggi)
-function isPast(turno) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return turno.date < today;
 }
 function genTurni(startISO, n) {
   const start = parseISO(startISO);
@@ -155,14 +149,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
 
-  const turni = useMemo(() => {
-    const start = parseISO(CICLO_START);
-    const end = addDays(new Date(), GIORNI_AVANTI);
-    // quanti cicli da CICLO_START fino a end (almeno 6, per sicurezza)
-    const giorni = Math.max(0, Math.round((end - start) / (1000 * 60 * 60 * 24)));
-    const n = Math.max(6, Math.ceil(giorni / CICLO_GIORNI) + 1);
-    return genTurni(CICLO_START, n);
-  }, []);
+  const turni = useMemo(() => genTurni(CICLO_START, N_TURNI_VISIBILI), []);
 
   // load
   useEffect(() => {
@@ -331,8 +318,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
   const me = people.find((p) => p.id === personId);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
-  const futureTurni = useMemo(() => turni.filter((t) => !isPast(t)), [turni]);
-  const publishedTurni = useMemo(() => turni.filter((t) => published[t.id] && !isPast(t)), [turni, published]);
+  const publishedTurni = useMemo(() => turni.filter((t) => published[t.id]), [turni, published]);
 
   // turni in cui a questa persona è stato chiesto un rimpiazzo:
   // alert attivo sul turno + la persona è ASSENTE su quel turno
@@ -497,7 +483,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
           </p>
 
           <div style={S.turniGrid}>
-            {futureTurni.map((t) => {
+            {turni.map((t) => {
               const cur = availability[t.id]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
               const isDiurna = t.kind === "diurna";
               const quickActive =
@@ -655,7 +641,7 @@ function CapoGate({ unlocked, setUnlocked, children }) {
    CAPOSQUADRA — dashboard
    =========================================================================== */
 function CapoView(props) {
-  const [section, setSection] = useState("turni"); // turni | persone | classifiche | archivio
+  const [section, setSection] = useState("turni"); // turni | persone | classifiche
   return (
     <main style={S.main}>
       <div style={S.subnav}>
@@ -663,7 +649,6 @@ function CapoView(props) {
           ["turni", "Turni & equipaggi"],
           ["persone", "Squadra"],
           ["classifiche", "Classifiche"],
-          ["archivio", "Archivio"],
         ].map(([k, l]) => (
           <button key={k} style={{ ...S.subnavBtn, ...(section === k ? S.subnavOn : {}) }} onClick={() => setSection(k)}>
             {l}
@@ -673,55 +658,7 @@ function CapoView(props) {
       {section === "turni" && <TurniCapo {...props} />}
       {section === "persone" && <PersoneCapo {...props} />}
       {section === "classifiche" && <Classifiche {...props} />}
-      {section === "archivio" && <ArchivioCapo {...props} />}
     </main>
-  );
-}
-
-/* ---------- Archivio: turni passati in sola lettura ---------- */
-function ArchivioCapo({ turni, people, availability, assignments, crewsFor }) {
-  const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
-  const past = useMemo(
-    () => turni.filter((t) => isPast(t)).sort((a, b) => b.date - a.date), // più recenti in cima
-    [turni]
-  );
-  const [open, setOpen] = useState(null);
-
-  if (past.length === 0) {
-    return (
-      <>
-        <h2 style={S.h2}>Archivio</h2>
-        <p style={S.helper}>Qui finiranno i turni passati, con i loro equipaggi. Per ora non ce ne sono ancora.</p>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <h2 style={S.h2}>Archivio turni passati</h2>
-      <p style={{ ...S.helper, marginTop: -8, marginBottom: 16 }}>
-        Turni già trascorsi, in sola lettura. Sono spariti dalla pagina delle disponibilità ma restano qui.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {past.map((t) => {
-          const isOpen = open === t.id;
-          const sheet = buildSheet(t, people, assignments, availability, crewsFor, pById);
-          return (
-            <div key={t.id} style={S.accordion}>
-              <button style={S.accHead} onClick={() => setOpen(isOpen ? null : t.id)}>
-                <span style={S.accDate}>{t.kind === "diurna" ? "☀️ " : ""}{t.label} {t.date.getFullYear()}</span>
-                <span style={{ color: "var(--ink-soft)", fontSize: 13 }}>{isOpen ? "▲" : "▼"}</span>
-              </button>
-              {isOpen && (
-                <div style={S.accBody}>
-                  <SheetView turno={t} sheet={sheet} message={null} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </>
   );
 }
 
@@ -936,7 +873,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {turni.filter((t) => !isPast(t)).map((t) => {
+        {turni.map((t) => {
           const isOpen = open === t.id;
           const a = assignments[t.id];
           const stats = coverageStats(t, a, crewsFor);
