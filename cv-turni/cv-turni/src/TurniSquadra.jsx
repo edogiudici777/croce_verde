@@ -237,6 +237,7 @@ export default function App() {
     <div style={S.shell}>
       <Style />
       <Header tab={tab} setTab={setTab} unlocked={unlocked} saveState={saveState} />
+      <div key={tab} className="page-anim">
       {tab === "compagni" && (
         <CompagniView
           turni={turni}
@@ -271,6 +272,7 @@ export default function App() {
           />
         </CapoGate>
       )}
+      </div>
       <footer style={S.footer}>
         Croceverde APM Milano · turni ogni {CICLO_GIORNI} giorni · i dati sono condivisi tra tutti
       </footer>
@@ -295,12 +297,14 @@ function Header({ tab, setTab, unlocked, saveState }) {
         <SaveDot state={saveState} />
         <div style={S.tabs}>
           <button
+            className="tap tabline"
             style={{ ...S.tab, ...(tab === "compagni" ? S.tabOn : {}) }}
             onClick={() => setTab("compagni")}
           >
             Le mie disponibilità
           </button>
           <button
+            className="tap tabline"
             style={{ ...S.tab, ...(tab === "capo" ? S.tabOn : {}) }}
             onClick={() => setTab("capo")}
           >
@@ -512,7 +516,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             Per ogni notte dicci se puoi <b>prima di mezzanotte</b>, <b>dopo</b>, tutto, o se sei assente. I bottoni veloci impostano tutto in un tocco.
           </p>
 
-          <div style={S.turniGrid}>
+          <div style={S.turniGrid} className="stagger">
             {futureTurni.map((t) => {
               const cur = availability[t.id]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
               const isDiurna = t.kind === "diurna";
@@ -522,7 +526,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                 cur.pre === "ASSENTE" && cur.post === "ENTRAMBE" ? "DOPO" :
                 cur.pre === "ASSENTE" && cur.post === "ASSENTE" ? "ASSENTE" : null;
               return (
-                <div key={t.id} style={{ ...S.turnoCard, ...(isDiurna ? S.turnoCardDiurna : {}) }}>
+                <div key={t.id} className="card-h" style={{ ...S.turnoCard, ...(isDiurna ? S.turnoCardDiurna : {}) }}>
                   <div style={S.turnoHead}>
                     <div>
                       <div style={S.turnoDate}>{isDiurna ? "☀️ " : ""}{t.label}</div>
@@ -542,7 +546,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                       <button
                         key={mode}
                         onClick={() => setQuick(t.id, mode)}
-                        style={{ ...S.quickBtn, ...(quickActive === mode ? S.quickBtnOn : {}) }}
+                        className="tap" style={{ ...S.quickBtn, ...(quickActive === mode ? S.quickBtnOn : {}) }}
                       >
                         {lbl}
                       </button>
@@ -667,15 +671,17 @@ function CapoView(props) {
           ["classifiche", "Classifiche"],
           ["archivio", "Archivio"],
         ].map(([k, l]) => (
-          <button key={k} style={{ ...S.subnavBtn, ...(section === k ? S.subnavOn : {}) }} onClick={() => setSection(k)}>
+          <button key={k} className="tap tabline" style={{ ...S.subnavBtn, ...(section === k ? S.subnavOn : {}) }} onClick={() => setSection(k)}>
             {l}
           </button>
         ))}
       </div>
+      <div key={section} className="page-anim">
       {section === "turni" && <TurniCapo {...props} />}
       {section === "persone" && <PersoneCapo {...props} />}
       {section === "classifiche" && <Classifiche {...props} />}
       {section === "archivio" && <ArchivioCapo {...props} />}
+      </div>
     </main>
   );
 }
@@ -709,7 +715,7 @@ function ArchivioCapo({ turni, people, availability, assignments, crewsFor }) {
           const isOpen = open === t.id;
           const sheet = buildSheet(t, people, assignments, availability, crewsFor, pById);
           return (
-            <div key={t.id} style={S.accordion}>
+            <div key={t.id} className="card-h" style={S.accordion}>
               <button style={S.accHead} onClick={() => setOpen(isOpen ? null : t.id)}>
                 <span style={S.accDate}>{t.kind === "diurna" ? "☀️ " : ""}{t.label} {t.date.getFullYear()}</span>
                 <span style={{ color: "var(--ink-soft)", fontSize: 13 }}>{isOpen ? "▲" : "▼"}</span>
@@ -954,7 +960,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
           <h2 style={{ ...S.h2, margin: 0 }}>Turni & equipaggi</h2>
           <p style={{ ...S.helper, margin: "2px 0 0" }}>Imposta quanti equipaggi servono per ogni metà (default {EQUIPAGGI_PER_META}+{EQUIPAGGI_PER_META}). Ogni equipaggio è autista + capo + 2 soccorritori.</p>
         </div>
-        <button style={S.primaryBtn} onClick={runAuto}>⚡ Genera proposta automatica</button>
+        <button className="tap" style={S.primaryBtn} onClick={runAuto}>⚡ Genera proposta automatica</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -965,7 +971,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
           const al = alerts[t.id];
           const subsFound = al ? Object.entries(al.resolved || {}).filter(([, r]) => r.sub && r.sub.trim()) : [];
           return (
-            <div key={t.id} style={S.accordion}>
+            <div key={t.id} className="card-h" style={S.accordion}>
               <button style={S.accHead} onClick={() => setOpen(isOpen ? null : t.id)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                   <span style={S.accDate}>{t.kind === "diurna" ? "☀️ " : ""}{t.label}</span>
@@ -1166,11 +1172,11 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
         {pub ? (
           <>
-            <button style={S.primaryBtn} onClick={publish}>Aggiorna pubblicazione</button>
+            <button className="tap" style={S.primaryBtn} onClick={publish}>Aggiorna pubblicazione</button>
             <button style={S.ghostBtn} onClick={unpublish}>Ritira</button>
           </>
         ) : (
-          <button style={S.primaryBtn} onClick={publish}>✅ Pubblica e invia su WhatsApp</button>
+          <button className="tap" style={S.primaryBtn} onClick={publish}>✅ Pubblica e invia su WhatsApp</button>
         )}
         <button style={S.ghostBtn} onClick={() => downloadSheetPDF(turno, sheetFull, msg)}>⬇️ Scarica PDF</button>
       </div>
@@ -1716,10 +1722,10 @@ function PersoneCapo({ people, savePeople }) {
         <label style={S.checkPill}>
           <input type="checkbox" checked={roles.capo} onChange={(e) => setRoles((s) => ({ ...s, capo: e.target.checked }))} /> Capo
         </label>
-        <button style={S.primaryBtn} onClick={add}>Aggiungi</button>
+        <button className="tap" style={S.primaryBtn} onClick={add}>Aggiungi</button>
       </div>
 
-      <div style={S.peopleGrid}>
+      <div style={S.peopleGrid} className="stagger">
         {[...people].sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
           <div key={p.id} style={{ ...S.personCard, ...(p.permesso ? { opacity: 0.6 } : {}) }}>
             <div style={{ flex: 1 }}>
@@ -1779,7 +1785,7 @@ function Classifiche({ turni, people, assignments, galley }) {
     <>
       <h2 style={S.h2}>Classifiche</h2>
       <p style={S.helper}>Aggiornate in automatico man mano che assegni gli equipaggi. Per gioco — ma anche per tenere il carico equo.</p>
-      <div style={S.rankGrid}>
+      <div style={S.rankGrid} className="stagger">
         {ranks.map((r) => {
           const sorted = [...stats].filter((s) => s[r.key] > 0).sort((a, b) => b[r.key] - a[r.key]).slice(0, 6);
           const max = sorted[0]?.[r.key] || 1;
@@ -1836,15 +1842,50 @@ function Style() {
         --cv-deep:#15833f;
         --c-absent:#e2574c; --c-pre:#f0a830; --c-post:#5b9bf0; --c-both:#1fae5a;
         --r:14px;
+        --ease:cubic-bezier(.22,.61,.36,1);
       }
       *{box-sizing:border-box}
-      @media (prefers-reduced-motion: no-preference){
-        .acc-body{animation:fade .18s ease}
-      }
-      @keyframes fade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
       button{cursor:pointer;font-family:inherit}
       button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--cv);outline-offset:2px}
       select, input{font-family:inherit}
+
+      @media (prefers-reduced-motion: no-preference){
+        /* comparsa del contenuto di ogni pagina/sezione */
+        .page-anim{animation:pageIn .32s var(--ease) both}
+        .acc-body{animation:fade .2s var(--ease)}
+
+        /* comparsa "a cascata" delle card in una griglia */
+        .stagger > *{animation:cardIn .34s var(--ease) both}
+        .stagger > *:nth-child(1){animation-delay:.02s}
+        .stagger > *:nth-child(2){animation-delay:.06s}
+        .stagger > *:nth-child(3){animation-delay:.10s}
+        .stagger > *:nth-child(4){animation-delay:.14s}
+        .stagger > *:nth-child(5){animation-delay:.18s}
+        .stagger > *:nth-child(6){animation-delay:.22s}
+        .stagger > *:nth-child(7){animation-delay:.26s}
+        .stagger > *:nth-child(8){animation-delay:.30s}
+        .stagger > *:nth-child(n+9){animation-delay:.34s}
+      }
+
+      @keyframes fade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+      @keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+      @keyframes cardIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+
+      /* micro-interazioni */
+      .tap{transition:transform .12s var(--ease), background .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease)}
+      .tap:hover{transform:translateY(-1px)}
+      .tap:active{transform:translateY(0) scale(.97)}
+
+      .card-h{transition:transform .18s var(--ease), box-shadow .22s var(--ease), border-color .18s var(--ease)}
+      .card-h:hover{transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,0,0,.28); border-color:var(--cv)}
+
+      /* barra animata sotto la tab attiva */
+      .tabline{transition:background .2s var(--ease), color .2s var(--ease)}
+
+      @media (prefers-reduced-motion: reduce){
+        .page-anim,.stagger>*,.acc-body{animation:none !important}
+        .tap,.card-h{transition:none !important}
+      }
     `}</style>
   );
 }
