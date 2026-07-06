@@ -49,6 +49,20 @@ const MOTIVI = {
 };
 const MOTIVI_ORDER = ["lavoro", "studio", "sanitaria", "altro"];
 
+/* ---------- metà turno: notte = prima/dopo mezzanotte, diurna = mattina/pomeriggio ---------- */
+const HALF_KEYS = ["pre", "post"];
+function isDiurnaTurno(turno) {
+  return (turno?.kind === "diurna") || (typeof turno === "string" && turno.endsWith(":diurna"));
+}
+function halfLabel(turno, key) {
+  if (isDiurnaTurno(turno)) return key === "pre" ? "Mattina" : "Pomeriggio";
+  return key === "pre" ? "Prima di mezzanotte" : "Dopo mezzanotte";
+}
+function halfIcon(turno, key) {
+  if (isDiurnaTurno(turno)) return key === "pre" ? "🌅" : "🌤️";
+  return key === "pre" ? "🌙" : "🌃";
+}
+
 /* ---------- util date ---------- */
 function parseISO(s) {
   const [y, m, d] = s.split("-").map(Number);
@@ -206,7 +220,7 @@ export default function App() {
     const explicit = config[turnoId]?.[half];
     if (explicit !== undefined) return explicit;
     const isDiurna = turnoId.endsWith(":diurna");
-    if (isDiurna) return half === "pre" ? 1 : 0;
+    if (isDiurna) return 1;
     return EQUIPAGGI_PER_META;
   };
 
@@ -516,41 +530,27 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                     </div>
                   </div>
 
-                  {isDiurna ? (
-                    <>
-                      <div style={S.halfRow}>
-                        <HalfPicker
-                          label="Diurna (di giorno)"
-                          value={cur.pre}
-                          onChange={(v) => setDispo(t.id, "pre", v, true)}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={S.quickRow}>
-                        {[
-                          ["TUTTO", "Tutto il turno"],
-                          ["PRIMA", "Solo prima"],
-                          ["DOPO", "Solo dopo"],
-                          ["ASSENTE", "Assente"],
-                        ].map(([mode, lbl]) => (
-                          <button
-                            key={mode}
-                            onClick={() => setQuick(t.id, mode)}
-                            style={{ ...S.quickBtn, ...(quickActive === mode ? S.quickBtnOn : {}) }}
-                          >
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
+                  <div style={S.quickRow}>
+                    {[
+                      ["TUTTO", "Tutto il turno"],
+                      ["PRIMA", isDiurna ? "Solo mattina" : "Solo prima"],
+                      ["DOPO", isDiurna ? "Solo pomeriggio" : "Solo dopo"],
+                      ["ASSENTE", "Assente"],
+                    ].map(([mode, lbl]) => (
+                      <button
+                        key={mode}
+                        onClick={() => setQuick(t.id, mode)}
+                        style={{ ...S.quickBtn, ...(quickActive === mode ? S.quickBtnOn : {}) }}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
 
-                      <div style={S.halfRow}>
-                        <HalfPicker label="Prima di mezzanotte" value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />
-                        <HalfPicker label="Dopo mezzanotte" value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />
-                      </div>
-                    </>
-                  )}
+                  <div style={S.halfRow}>
+                    <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />
+                    <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />
+                  </div>
 
                   {cur.pre === "ASSENTE" && cur.post === "ASSENTE" && (
                     <div style={S.reasonBox}>
@@ -739,14 +739,15 @@ function downloadSheetPDF(turno, sheet, message) {
             : '<span class="empty">— scoperto —</span>'
         }</td></tr>`;
       const socc = c.soccorritori.map((s, i) =>
-        row(c.soccorritori.length === 1 ? "Soccorritore" : "Soccorritore " + (i + 1), s)).join("");
+        row(c.soccorritori.length === 1 ? "SOCC" : "SOCC", s)).join("");
+      const orario = `${c.inSede ? `In sede ore ${esc(c.inSede)} · ` : ""}${esc(c.fascia)}`;
       return `<div class="crew">
-        <div class="crewn">Equipaggio ${c.n}</div>
-        <table>${row("Autista", c.autista)}${row("Capo", c.capo)}${socc}</table>
+        <div class="crewn">${esc(c.name)}</div>
+        <div class="crewt">${orario}</div>
+        <table>${row("AV", c.autista)}${row("CS", c.capo)}${socc}</table>
       </div>`;
     }).join("");
-    const icon = turno.kind === "diurna" ? "☀️" : (h.key === "pre" ? "🌙" : "🌃");
-    return `<div class="half"><h3>${icon} ${esc(h.label)}</h3><div class="crews">${crews}</div></div>`;
+    return `<div class="half"><h3>${halfIcon(turno, h.key)} ${esc(h.label)}</h3><div class="crews">${crews}</div></div>`;
   };
 
   const reasonHtml = MOTIVI_ORDER.map((k) => {
@@ -771,12 +772,15 @@ function downloadSheetPDF(turno, sheet, message) {
     .half h3 { font-size:15px; margin:0 0 8px; color:#15833f; }
     .crews { display:flex; flex-wrap:wrap; gap:12px; }
     .crew { border:1px solid #d8e0e8; border-radius:10px; padding:10px 12px; min-width:220px; flex:1; }
-    .crewn { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#7c8a98; margin-bottom:6px; font-weight:700; }
+    .crewn { font-size:13px; letter-spacing:.3px; color:#15833f; margin-bottom:2px; font-weight:800; }
+    .crewt { font-size:11px; color:#5b6b7a; margin-bottom:7px; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     td { padding:3px 0; vertical-align:top; }
-    td.role { color:#7c8a98; width:90px; white-space:nowrap; }
+    td.role { color:#7c8a98; width:54px; white-space:nowrap; font-weight:700; }
     .ext { color:#3a7bd0; font-size:11px; }
     .empty { color:#d6453a; }
+    .central { margin:14px 0; font-size:14px; }
+    .central b { color:#15833f; }
     .absent { margin-top:6px; page-break-inside:avoid; }
     .absent h3 { font-size:15px; color:#15833f; margin:0 0 8px; }
     .absrow { display:flex; flex-wrap:wrap; gap:18px; }
@@ -791,6 +795,7 @@ function downloadSheetPDF(turno, sheet, message) {
       <div><div class="brand">Croceverde APM · Milano</div><h1>Equipaggi — ${esc(cap)} ${turno.date.getFullYear()}</h1></div>
     </div>
     ${sheet.halves.map(halfHtml).join("")}
+    ${sheet.centralino && sheet.centralino.length ? `<div class="central">☎️ <b>Centralino:</b> ${sheet.centralino.map((s) => esc(s.name)).join(" · ")}</div>` : ""}
     ${anyAbsent ? `<div class="absent"><h3>Assenti</h3><div class="absrow">${reasonHtml}</div></div>` : ""}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
     <div class="foot">Generato da Turni Squadra · ${new Date().toLocaleDateString("it-IT")}</div>
@@ -963,15 +968,13 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                     </div>
                   )}
 
-                  {(t.kind === "diurna" ? ["pre"] : ["pre", "post"]).map((half) => {
+                  {HALF_KEYS.map((half) => {
                     const nCrews = crewsFor(t.id, half);
-                    const halfLabel = t.kind === "diurna"
-                      ? "☀️ Diurna (di giorno)"
-                      : (half === "pre" ? "🌙 Prima di mezzanotte" : "🌃 Dopo mezzanotte");
+                    const hl = `${halfIcon(t, half)} ${halfLabel(t, half)}`;
                     return (
                       <div key={half} style={{ marginBottom: 18 }}>
                         <div style={S.halfTitleRow}>
-                          <div style={S.halfTitle}>{halfLabel}</div>
+                          <div style={S.halfTitle}>{hl}</div>
                           <div style={S.stepper}>
                             <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>equipaggi</span>
                             <button style={S.stepBtn} onClick={() => setCrews(t.id, half, nCrews - 1)}>−</button>
@@ -1002,6 +1005,15 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                       </div>
                     );
                   })}
+
+                  <CentralinoEditor
+                    turno={t}
+                    people={people}
+                    pById={pById}
+                    availability={availability}
+                    assignments={assignments}
+                    saveAssign={saveAssign}
+                  />
 
                   <div style={S.alertControlRow}>
                     <button
@@ -1072,10 +1084,10 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
     const lines = [`📋 EQUIPAGGI — ${turno.label} ${turno.date.getFullYear()}`, ""];
     sheet.halves.forEach((h) => {
       if (!h.crews.length) return;
-      const icon = turno.kind === "diurna" ? "☀️" : (h.key === "pre" ? "🌙" : "🌃");
-      lines.push(`${icon} ${h.label}`);
+      lines.push(`${halfIcon(turno, h.key)} ${h.label}`);
       h.crews.forEach((c) => {
-        lines.push(`  Equipaggio ${c.n}:`);
+        const orario = `${c.inSede ? `in sede ${c.inSede}, ` : ""}${c.fascia}`;
+        lines.push(`  ${c.name} (${orario}):`);
         const line = (role, s) => lines.push(`   • ${role}: ${s ? s.name + (s.ext ? " (rimpiazzo)" : "") : "— scoperto —"}`);
         line("Autista", c.autista);
         line("Capo", c.capo);
@@ -1083,6 +1095,10 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       });
       lines.push("");
     });
+    if (sheet.centralino && sheet.centralino.length) {
+      lines.push(`☎️ Centralino: ${sheet.centralino.map((s) => s.name).join(", ")}`);
+      lines.push("");
+    }
     const anyAbsent = MOTIVI_ORDER.some((k) => sheet.byReason[k].length);
     if (anyAbsent) {
       lines.push("Assenti:");
@@ -1216,6 +1232,16 @@ function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability,
     saveAssign(next);
   };
 
+  const setField = (field, value) => {
+    const next = JSON.parse(JSON.stringify(assignments));
+    if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
+    if (!next[turno.id][half]) next[turno.id][half] = [];
+    while (next[turno.id][half].length <= crewIndex)
+      next[turno.id][half].push({ autista: null, capo: null, soccorritori: [], size: 4 });
+    next[turno.id][half][crewIndex][field] = value;
+    saveAssign(next);
+  };
+
   // chi è disponibile in questa metà, escludendo già assegnati altrove nello stesso turno+metà
   const assignedElsewhere = useMemo(() => {
     const set = new Set();
@@ -1238,11 +1264,32 @@ function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability,
   return (
     <div style={S.crewCard}>
       <div style={S.crewHeadRow}>
-        <div style={S.crewTitle}>Equipaggio {crewIndex + 1}</div>
+        <input
+          style={S.crewNameInput}
+          value={c.name ?? defaultCrewName(turno, half, crewIndex)}
+          onChange={(e) => setField("name", e.target.value)}
+          title="Nome equipaggio (modificabile)"
+        />
         <div style={S.sizeToggle}>
           <button style={{ ...S.sizeBtn, ...(size === 3 ? S.sizeBtnOn : {}) }} onClick={() => setSize(3)}>3</button>
           <button style={{ ...S.sizeBtn, ...(size === 4 ? S.sizeBtnOn : {}) }} onClick={() => setSize(4)}>4</button>
         </div>
+      </div>
+      <div style={S.crewTimesRow}>
+        <input
+          style={S.crewTimeInput}
+          value={c.inSede ?? ""}
+          onChange={(e) => setField("inSede", e.target.value)}
+          placeholder="In sede ore…"
+          title="Orario di ritrovo in sede"
+        />
+        <input
+          style={S.crewTimeInput}
+          value={c.fascia ?? defaultFascia(turno, half)}
+          onChange={(e) => setField("fascia", e.target.value)}
+          placeholder="Fascia (es. 20:00-00:00)"
+          title="Fascia oraria del turno"
+        />
       </div>
       <SlotSelect
         label="Autista" icon="🚑" role="autista"
@@ -1290,10 +1337,7 @@ function slotName(v, pById) {
 
 // costruisce i dati del foglio per un turno: equipaggi + assenti raggruppati per motivo + non risposto
 function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
-  const isDiurna = turno.kind === "diurna";
-  const halfDefs = isDiurna
-    ? [{ key: "pre", label: "Diurna (di giorno)" }]
-    : [{ key: "pre", label: "Prima di mezzanotte" }, { key: "post", label: "Dopo mezzanotte" }];
+  const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
     const nCrews = crewsFor(turno.id, h.key);
     const crews = [];
@@ -1303,6 +1347,9 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
       const need = size - 2;
       crews.push({
         n: i + 1,
+        name: c.name || defaultCrewName(turno, h.key, i),
+        inSede: c.inSede || "",
+        fascia: c.fascia || defaultFascia(turno, h.key),
         autista: slotName(c.autista, pById),
         capo: slotName(c.capo, pById),
         soccorritori: Array.from({ length: need }).map((_, j) => slotName(c.soccorritori?.[j], pById)).filter(Boolean),
@@ -1310,6 +1357,9 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
     }
     return { ...h, crews };
   });
+
+  // centralino (persone al telefono) — stored per turno
+  const centralino = assignments[turno.id]?.centralino || [];
 
   // assenti raggruppati per motivo (solo chi NON è in permesso e ha messo "assente" su tutto)
   const byReason = { lavoro: [], studio: [], sanitaria: [], altro: [] };
@@ -1327,7 +1377,22 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
   Object.keys(byReason).forEach((k) => byReason[k].sort((x, y) => x.localeCompare(y)));
   notResponded.sort((x, y) => x.localeCompare(y));
 
-  return { halves, byReason, notResponded };
+  const centralinoResolved = centralino.map((cid) => slotName(cid, pById)).filter(Boolean);
+
+  return { halves, byReason, notResponded, centralino: centralinoResolved };
+}
+
+// nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
+function defaultCrewName(turno, half, index) {
+  if (isDiurnaTurno(turno)) return `${index + 1}° Equipaggio`;
+  // notturna: prima metà = H24 / Gettone, seconda metà = 1°/2° Equipaggio (come nel modello)
+  if (half === "pre") return index === 0 ? "H24" : `Gettone ${index}`;
+  return `${index + 1}° Equipaggio`;
+}
+// fascia oraria di default
+function defaultFascia(turno, half) {
+  if (isDiurnaTurno(turno)) return half === "pre" ? "08:00-14:00" : "14:00-20:00";
+  return half === "pre" ? "20:00-00:00" : "00:00-06:00";
 }
 
 // vista del foglio (usata in-app per i compagni)
@@ -1353,12 +1418,15 @@ function SheetView({ turno, sheet, message }) {
 
       {sheet.halves.map((h) => (
         <div key={h.key} style={{ marginBottom: 16 }}>
-          <div style={S.sheetHalf}>{turno.kind === "diurna" ? "☀️" : (h.key === "pre" ? "🌙" : "🌃")} {h.label}</div>
+          <div style={S.sheetHalf}>{halfIcon(turno, h.key)} {h.label}</div>
           <div style={S.sheetCrews}>
             {h.crews.length === 0 && <div style={S.helper}>Nessun equipaggio.</div>}
             {h.crews.map((c) => (
               <div key={c.n} style={S.sheetCrew}>
-                <div style={S.sheetCrewN}>Equipaggio {c.n}</div>
+                <div style={S.sheetCrewN}>{c.name}</div>
+                <div style={S.sheetTimes}>
+                  {c.inSede ? `In sede ore ${c.inSede} · ` : ""}{c.fascia}
+                </div>
                 {renderSlot("Autista", c.autista)}
                 {renderSlot("Capo", c.capo)}
                 {c.soccorritori.map((s, i) => renderSlot(c.soccorritori.length === 1 ? "Soccorritore" : `Soccorritore ${i + 1}`, s))}
@@ -1367,6 +1435,13 @@ function SheetView({ turno, sheet, message }) {
           </div>
         </div>
       ))}
+
+      {sheet.centralino && sheet.centralino.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={S.sheetHalf}>☎️ Centralino</div>
+          <div style={S.sheetCentralino}>{sheet.centralino.map((s) => s.name).join(" · ")}</div>
+        </div>
+      )}
 
       {anyAbsent && (
         <div style={{ marginTop: 10 }}>
@@ -1459,6 +1534,38 @@ function GalleyEditor({ turno, people, pById, availability, galley, saveGalley }
         {[0, 1].map((i) => (
           <select key={i} style={{ ...S.slotSelect, minWidth: 160 }} value={cur[i] || ""} onChange={(e) => set(i, e.target.value)}>
             <option value="">— scegli —</option>
+            {present.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- editor centralino (persone al telefono) ---------- */
+function CentralinoEditor({ turno, people, pById, availability, assignments, saveAssign }) {
+  const cur = assignments[turno.id]?.centralino || [];
+  const present = people.filter((p) => {
+    const a = availability[turno.id]?.[p.id];
+    return a && (a.pre === "ENTRAMBE" || a.post === "ENTRAMBE");
+  });
+  const set = (idx, value) => {
+    const next = JSON.parse(JSON.stringify(assignments));
+    if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
+    const arr = next[turno.id].centralino ? [...next[turno.id].centralino] : [];
+    arr[idx] = value || null;
+    next[turno.id].centralino = arr.filter((x, i) => i < 3);
+    saveAssign(next);
+  };
+  return (
+    <div style={S.centralinoBox}>
+      <div style={S.galleyTitle}>☎️ Centralino — chi risponde al telefono</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {[0, 1, 2].map((i) => (
+          <select key={i} style={{ ...S.slotSelect, minWidth: 150 }} value={cur[i] || ""} onChange={(e) => set(i, e.target.value)}>
+            <option value="">— nessuno —</option>
             {present.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -1772,7 +1879,13 @@ const S = {
   reasonBtnOn: { background: "var(--c-absent)", color: "#fff", borderColor: "var(--c-absent)" },
 
   // dimensione equipaggio
-  crewHeadRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  crewHeadRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 },
+  crewNameInput: { flex: 1, minWidth: 0, background: "var(--panel)", color: "var(--cv)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 14, fontWeight: 700 },
+  crewTimesRow: { display: "flex", gap: 6, marginBottom: 10 },
+  crewTimeInput: { flex: 1, minWidth: 0, background: "var(--panel)", color: "var(--ink-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 12 },
+  centralinoBox: { background: "rgba(91,155,240,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },
+  sheetTimes: { fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 },
+  sheetCentralino: { fontSize: 14, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" },
   sizeToggle: { display: "flex", gap: 3, background: "var(--panel)", borderRadius: 8, padding: 3 },
   sizeBtn: { width: 26, height: 24, borderRadius: 6, border: 0, background: "transparent", color: "var(--ink-soft)", fontSize: 13, fontWeight: 700 },
   sizeBtnOn: { background: "var(--cv)", color: "#fff" },
