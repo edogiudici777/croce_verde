@@ -1,51 +1,55 @@
 /* ===========================================================================
-   Service Worker — Turni Squadra
-   - Rende l'app installabile e utilizzabile anche con rete debole (cache shell)
-   - Riceve le notifiche push e le mostra
+   Service Worker — Turni Squadra (v2, network-first)
+   - Rende l'app installabile sulla schermata Home
+   - Prende SEMPRE la versione fresca dalla rete (niente più schermate nere
+     agli aggiornamenti). La cache serve solo come rete di sicurezza offline.
    =========================================================================== */
 
-const CACHE = "cv-turni-v1";
-const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icons/icon-192.png"];
+const CACHE = "cv-turni-v2";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})
-  );
+  // attiva subito la nuova versione senza aspettare
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    (async () => {
+      // cancella TUTTE le cache vecchie (comprese quelle della v1 che davano lo schermo nero)
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => (k !== CACHE ? caches.delete(k) : null)));
+      await self.clients.claim();
+    })()
   );
-  self.clients.claim();
 });
 
-/* Strategia di rete:
-   - le chiamate a Supabase (dati) vanno SEMPRE in rete (network-first, no cache)
-   - il resto (shell dell'app) usa cache-first con fallback rete */
+/* Strategia NETWORK-FIRST:
+   - prova sempre la rete (così il codice è sempre l'ultimo pubblicato)
+   - salva una copia in cache
+   - usa la cache SOLO se la rete non è disponibile (offline vero)
+   - le chiamate a Supabase (dati) passano sempre e solo dalla rete */
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (event.request.method !== "GET") return;
-  if (url.hostname.endsWith("supabase.co")) return; // dati sempre freschi
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.hostname.endsWith("supabase.co")) return; // dati sempre freschi, mai in cache
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => caches.match("/index.html"));
-    })
+    fetch(req)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      })
+      .catch(async () => {
+        // rete assente: prova la cache, poi la home come ultima risorsa
+        const cached = await caches.match(req);
+        return cached || caches.match("/index.html");
+      })
   );
 });
 
-/* Notifiche push: il server invia un payload JSON { title, body, url } */
+/* Notifiche push (restano per il futuro, non usate ora) */
 self.addEventListener("push", (event) => {
   let data = { title: "Turni Squadra", body: "Hai un aggiornamento sui turni.", url: "/" };
   try {
@@ -64,7 +68,6 @@ self.addEventListener("push", (event) => {
   );
 });
 
-/* Al tap sulla notifica: apre/porta in primo piano l'app */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = event.notification.data?.url || "/";
