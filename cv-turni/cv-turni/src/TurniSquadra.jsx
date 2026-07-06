@@ -730,77 +730,92 @@ function ArchivioCapo({ turni, people, availability, assignments, crewsFor }) {
 /* ---------- generazione PDF (via stampa browser, nessuna libreria) ---------- */
 function downloadSheetPDF(turno, sheet, message) {
   const esc = (s) => String(s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  const cap = turno.label.charAt(0).toUpperCase() + turno.label.slice(1);
+  const tipo = turno.kind === "diurna" ? "DIURNA" : "NOTTURNA";
+  const titolo = `${tipo} ${esc(turno.label.toUpperCase())} ${turno.date.getFullYear()}`;
 
-  const halfHtml = (h) => {
-    if (!h.crews.length) return "";
-    const crews = h.crews.map((c) => {
-      const row = (role, s) =>
-        `<tr><td class="role">${role}</td><td>${
-          s ? esc(s.name) + (s.ext ? ` <span class="ext">· rimpiazzo${s.squad ? " (" + esc(s.squad) + ")" : ""}</span>` : "")
-            : '<span class="empty">— scoperto —</span>'
-        }</td></tr>`;
-      const socc = c.soccorritori.map((s, i) =>
-        row(c.soccorritori.length === 1 ? "SOCC" : "SOCC", s)).join("");
-      const orario = `${c.inSede ? `In sede ore ${esc(c.inSede)} · ` : ""}${esc(c.fascia)}`;
-      return `<div class="crew">
-        <div class="crewn">${esc(c.name)}</div>
-        <div class="crewt">${orario}</div>
-        <table>${row("AV", c.autista)}${row("CS", c.capo)}${socc}</table>
+  // una tabella-equipaggio in stile modello (header verde + riga orari + AV/CS/SOCC)
+  const crewTable = (c) => {
+    const orario = `In sede ore <b>${esc(c.inSede || "—")}</b> &nbsp; ${esc(c.fascia)}`;
+    const cell = (s) =>
+      s
+        ? `<span class="${s.ext ? "rimp" : "nom"}">${esc(s.name)}${s.ext ? " (rimp.)" : ""}</span>`
+        : `<span class="empty">— scoperto —</span>`;
+    const soccRows = c.soccorritori.map((s) => `<tr><td class="rl">SOCC</td><td>${cell(s)}</td></tr>`).join("");
+    return `
+      <div class="crew">
+        <div class="crewname">${esc(c.name)}</div>
+        <table class="ct">
+          <tr class="hdr"><td colspan="2">${orario}</td></tr>
+          <tr><td class="rl">AV</td><td>${cell(c.autista)}</td></tr>
+          <tr><td class="rl">CS</td><td>${cell(c.capo)}</td></tr>
+          ${soccRows}
+        </table>
       </div>`;
-    }).join("");
-    return `<div class="half"><h3>${halfIcon(turno, h.key)} ${esc(h.label)}</h3><div class="crews">${crews}</div></div>`;
   };
 
-  const reasonHtml = MOTIVI_ORDER.map((k) => {
-    if (!sheet.byReason[k].length) return "";
-    return `<div class="absg"><div class="absgt">${MOTIVI[k].icon} ${MOTIVI[k].label}</div>${
-      sheet.byReason[k].map((n) => `<div class="absn">${esc(n)}</div>`).join("")
-    }</div>`;
-  }).join("");
-  const anyAbsent = MOTIVI_ORDER.some((k) => sheet.byReason[k].length);
+  // equipaggi a coppie (due per riga, come il modello)
+  const allCrews = [];
+  sheet.halves.forEach((h) => h.crews.forEach((c) => allCrews.push(c)));
+  let crewsHtml = "";
+  for (let i = 0; i < allCrews.length; i += 2) {
+    crewsHtml += `<div class="row2">${crewTable(allCrews[i])}${allCrews[i + 1] ? crewTable(allCrews[i + 1]) : "<div class='crew empty-slot'></div>"}</div>`;
+  }
+
+  // centralino per metà
+  const centralHtml = (sheet.centralino || [])
+    .map((c) => `<div class="cline"><b>CENTRALINO ${esc(c.orario || c.label)}:</b> ${c.people.map((s) => esc(s.name)).join("-")}</div>`)
+    .join("");
+
+  // cambusa
+  const cambusaHtml = sheet.cambusa && sheet.cambusa.length
+    ? `<div class="cambusa">🍕 <b>CAMBUSA:</b> ${sheet.cambusa.map(esc).join("-")}</div>`
+    : "";
+
+  // note in fondo
+  const assentiTutte = MOTIVI_ORDER.flatMap((k) => sheet.byReason[k]).sort((a, b) => a.localeCompare(b));
+  const noteRows = [];
+  if (sheet.rimpiazzi && sheet.rimpiazzi.length) noteRows.push(`<div class="nrimp"><u>Rimpiazzi</u>: ${sheet.rimpiazzi.map(esc).join(", ")}</div>`);
+  if (sheet.permessi && sheet.permessi.length) noteRows.push(`<div><u>Permessi</u>: ${sheet.permessi.map(esc).join(", ")}</div>`);
+  if (assentiTutte.length) noteRows.push(`<div><u>Assenze giustificate/Esuberi</u>: ${assentiTutte.map(esc).join(", ")}</div>`);
+  const noteHtml = noteRows.length ? `<div class="note"><div class="notet">Note:</div>${noteRows.join("")}</div>` : "";
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
-  <title>Equipaggi ${esc(cap)}</title>
+  <title>${titolo}</title>
   <style>
-    @page { margin: 18mm; }
+    @page { margin: 16mm; }
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; color:#16202b; margin:0; }
-    .top { display:flex; align-items:center; gap:12px; border-bottom:3px solid #1fae5a; padding-bottom:12px; margin-bottom:18px; }
-    .cross { width:40px; height:40px; border-radius:9px; background:#1fae5a; color:#fff; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:800; }
-    .brand { font-size:13px; color:#5b6b7a; letter-spacing:.5px; text-transform:uppercase; }
-    h1 { font-size:24px; margin:2px 0 0; }
-    .half { margin-bottom:18px; page-break-inside:avoid; }
-    .half h3 { font-size:15px; margin:0 0 8px; color:#15833f; }
-    .crews { display:flex; flex-wrap:wrap; gap:12px; }
-    .crew { border:1px solid #d8e0e8; border-radius:10px; padding:10px 12px; min-width:220px; flex:1; }
-    .crewn { font-size:13px; letter-spacing:.3px; color:#15833f; margin-bottom:2px; font-weight:800; }
-    .crewt { font-size:11px; color:#5b6b7a; margin-bottom:7px; }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    td { padding:3px 0; vertical-align:top; }
-    td.role { color:#7c8a98; width:54px; white-space:nowrap; font-weight:700; }
-    .ext { color:#3a7bd0; font-size:11px; }
-    .empty { color:#d6453a; }
-    .central { margin:14px 0; font-size:14px; }
-    .central b { color:#15833f; }
-    .absent { margin-top:6px; page-break-inside:avoid; }
-    .absent h3 { font-size:15px; color:#15833f; margin:0 0 8px; }
-    .absrow { display:flex; flex-wrap:wrap; gap:18px; }
-    .absg { min-width:150px; }
-    .absgt { font-weight:700; font-size:13px; margin-bottom:4px; }
-    .absn { font-size:13px; color:#33424f; }
-    .msg { margin-top:24px; padding:14px 16px; background:#eef8f1; border-left:4px solid #1fae5a; border-radius:6px; font-style:italic; font-size:14px; }
-    .foot { margin-top:22px; font-size:11px; color:#9aa7b3; border-top:1px solid #e2e8ee; padding-top:8px; }
+    body { font-family: Georgia, 'Times New Roman', serif; color:#1a1a1a; margin:0; }
+    h1 { text-align:center; color:#2e7d32; font-size:26px; font-weight:700; margin:0 0 26px; letter-spacing:.5px; }
+    .row2 { display:flex; gap:26px; margin-bottom:22px; page-break-inside:avoid; }
+    .crew { flex:1; }
+    .empty-slot { border:none; }
+    .crewname { text-align:center; font-weight:700; font-size:18px; margin-bottom:6px; }
+    table.ct { width:100%; border-collapse:collapse; }
+    table.ct td { border:1px solid #6f6f6f; padding:7px 10px; font-size:14px; }
+    table.ct td.rl { width:64px; font-weight:400; background:#fff; }
+    tr.hdr td { background:#8bc48f; font-weight:400; font-size:12px; border:1px solid #6f6f6f; }
+    .nom { color:#000; }
+    .rimp { color:#c62828; font-weight:600; }
+    .empty { color:#c62828; }
+    td .nom, td .rimp { display:inline-block; text-align:center; width:100%; }
+    table.ct td:nth-child(2) { text-align:center; color:#c62828; }
+    table.ct tr:nth-child(2) td:nth-child(2) { color:#c62828; }
+    .cline { font-size:14px; margin:8px 0; }
+    .cambusa { font-size:14px; margin:16px 0 8px; }
+    .note { margin-top:22px; font-size:13px; line-height:1.6; }
+    .notet { margin-bottom:2px; }
+    .nrimp { color:#c62828; }
+    .msg { margin-top:16px; padding:12px 14px; background:#eef8f1; border-left:4px solid #2e7d32; font-style:italic; font-size:14px; }
+    .foot { margin-top:22px; font-size:10px; color:#9aa7b3; }
+    hr { border:none; border-top:1px solid #ccc; margin:20px 0; }
   </style></head><body>
-    <div class="top">
-      <div class="cross">+</div>
-      <div><div class="brand">Croceverde APM · Milano</div><h1>Equipaggi — ${esc(cap)} ${turno.date.getFullYear()}</h1></div>
-    </div>
-    ${sheet.halves.map(halfHtml).join("")}
-    ${sheet.centralino && sheet.centralino.length ? `<div class="central">☎️ <b>Centralino:</b> ${sheet.centralino.map((s) => esc(s.name)).join(" · ")}</div>` : ""}
-    ${anyAbsent ? `<div class="absent"><h3>Assenti</h3><div class="absrow">${reasonHtml}</div></div>` : ""}
+    <h1>${titolo}</h1>
+    ${crewsHtml}
+    ${centralHtml ? `<hr>${centralHtml}` : ""}
+    ${cambusaHtml}
+    ${noteHtml}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
-    <div class="foot">Generato da Turni Squadra · ${new Date().toLocaleDateString("it-IT")}</div>
+    <div class="foot">Generato da Turni Squadra · Croceverde APM · ${new Date().toLocaleDateString("it-IT")}</div>
   </body></html>`;
 
   const w = window.open("", "_blank");
@@ -1060,6 +1075,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                     availability={availability}
                     assignments={assignments}
                     crewsFor={crewsFor}
+                    galley={galley}
                     published={published}
                     savePublished={savePublished}
                   />
@@ -1074,13 +1090,19 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
 }
 
 /* ---------- blocco pubblicazione + PDF ---------- */
-function PublishBlock({ turno, people, pById, availability, assignments, crewsFor, published, savePublished }) {
+function PublishBlock({ turno, people, pById, availability, assignments, crewsFor, galley, published, savePublished }) {
   const pub = published[turno.id];
   const [msg, setMsg] = useState(pub?.message || "");
   const sheet = useMemo(
     () => buildSheet(turno, people, assignments, availability, crewsFor, pById),
     [turno, people, assignments, availability, crewsFor, pById]
   );
+  // nomi cambusa per questo turno
+  const cambusa = useMemo(
+    () => (galley[turno.id] || []).map((id) => pById[id]?.name).filter(Boolean),
+    [galley, turno.id, pById]
+  );
+  const sheetFull = { ...sheet, cambusa };
 
   const buildTextSummary = () => {
     const lines = [`📋 EQUIPAGGI — ${turno.label} ${turno.date.getFullYear()}`, ""];
@@ -1098,9 +1120,12 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       lines.push("");
     });
     if (sheet.centralino && sheet.centralino.length) {
-      lines.push(`☎️ Centralino: ${sheet.centralino.map((s) => s.name).join(", ")}`);
+      sheet.centralino.forEach((c) => {
+        lines.push(`☎️ Centralino ${c.label}${c.orario ? ` ${c.orario}` : ""}: ${c.people.map((s) => s.name).join(", ")}`);
+      });
       lines.push("");
     }
+    if (cambusa.length) { lines.push(`🍝 Cambusa: ${cambusa.join(", ")}`); lines.push(""); }
     const anyAbsent = MOTIVI_ORDER.some((k) => sheet.byReason[k].length);
     if (anyAbsent) {
       lines.push("Assenti:");
@@ -1109,7 +1134,8 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       });
       lines.push("");
     }
-    if (msg && msg.trim()) lines.push(msg.trim());
+    if (sheet.permessi && sheet.permessi.length) { lines.push(`Permessi: ${sheet.permessi.join(", ")}`); }
+    if (msg && msg.trim()) { lines.push(""); lines.push(msg.trim()); }
     return lines.join("\n");
   };
 
@@ -1146,7 +1172,7 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
         ) : (
           <button style={S.primaryBtn} onClick={publish}>✅ Pubblica e invia su WhatsApp</button>
         )}
-        <button style={S.ghostBtn} onClick={() => downloadSheetPDF(turno, sheet, msg)}>⬇️ Scarica PDF</button>
+        <button style={S.ghostBtn} onClick={() => downloadSheetPDF(turno, sheetFull, msg)}>⬇️ Scarica PDF</button>
       </div>
       {pub && (
         <div style={{ marginTop: 6, fontSize: 12, color: "var(--c-both)" }}>
@@ -1360,8 +1386,12 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
     return { ...h, crews };
   });
 
-  // centralino (persone al telefono) — stored per turno
-  const centralino = assignments[turno.id]?.centralino || [];
+  // centralino diviso per metà (pre/post), ciascuna con orario e persone.
+  // Retrocompatibilità: se esiste il vecchio formato array, lo metto in "pre".
+  const rawCentr = assignments[turno.id]?.centralino;
+  const centrData = Array.isArray(rawCentr)
+    ? { pre: { people: rawCentr, orario: "" }, post: { people: [], orario: "" } }
+    : (rawCentr || {});
 
   // assenti raggruppati per motivo (solo chi NON è in permesso e ha messo "assente" su tutto)
   const byReason = { lavoro: [], studio: [], sanitaria: [], altro: [] };
@@ -1379,9 +1409,25 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
   Object.keys(byReason).forEach((k) => byReason[k].sort((x, y) => x.localeCompare(y)));
   notResponded.sort((x, y) => x.localeCompare(y));
 
-  const centralinoResolved = centralino.map((cid) => slotName(cid, pById)).filter(Boolean);
+  const centralino = HALF_KEYS.map((key) => ({
+    key,
+    label: halfLabel(turno, key),
+    orario: centrData[key]?.orario || "",
+    people: (centrData[key]?.people || []).map((cid) => slotName(cid, pById)).filter(Boolean),
+  })).filter((c) => c.people.length > 0);
 
-  return { halves, byReason, notResponded, centralino: centralinoResolved };
+  // persone in permesso (per la sezione Note)
+  const permessi = people.filter((p) => p.permesso).map((p) => p.name).sort((a, b) => a.localeCompare(b));
+
+  // rimpiazzi esterni usati negli equipaggi (nome + eventuale squadra)
+  const rimpiazzi = [];
+  halves.forEach((h) => h.crews.forEach((c) => {
+    [c.autista, c.capo, ...c.soccorritori].forEach((s) => {
+      if (s && s.ext) rimpiazzi.push(s.name + (s.squad ? ` (${s.squad})` : ""));
+    });
+  }));
+
+  return { halves, byReason, notResponded, centralino, permessi, rimpiazzi };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -1441,7 +1487,11 @@ function SheetView({ turno, sheet, message }) {
       {sheet.centralino && sheet.centralino.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <div style={S.sheetHalf}>☎️ Centralino</div>
-          <div style={S.sheetCentralino}>{sheet.centralino.map((s) => s.name).join(" · ")}</div>
+          {sheet.centralino.map((c) => (
+            <div key={c.key} style={S.sheetCentralino}>
+              <b>{c.label}{c.orario ? ` (${c.orario})` : ""}:</b> {c.people.map((s) => s.name).join(" · ")}
+            </div>
+          ))}
         </div>
       )}
 
@@ -1546,34 +1596,76 @@ function GalleyEditor({ turno, people, pById, availability, galley, saveGalley }
   );
 }
 
-/* ---------- editor centralino (persone al telefono) ---------- */
+/* ---------- editor centralino (persone al telefono, diviso per metà) ---------- */
 function CentralinoEditor({ turno, people, pById, availability, assignments, saveAssign }) {
-  const cur = assignments[turno.id]?.centralino || [];
-  const present = people.filter((p) => {
-    const a = availability[turno.id]?.[p.id];
-    return a && (a.pre === "ENTRAMBE" || a.post === "ENTRAMBE");
-  });
-  const set = (idx, value) => {
+  // normalizza il dato (retrocompatibile col vecchio array)
+  const raw = assignments[turno.id]?.centralino;
+  const data = Array.isArray(raw)
+    ? { pre: { people: raw, orario: "" }, post: { people: [], orario: "" } }
+    : (raw || {});
+
+  const presentIn = (half) =>
+    people.filter((p) => {
+      const a = availability[turno.id]?.[p.id];
+      return a && (half === "pre" ? a.pre === "ENTRAMBE" : a.post === "ENTRAMBE");
+    });
+
+  const ensure = (obj) => {
     const next = JSON.parse(JSON.stringify(assignments));
     if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
-    const arr = next[turno.id].centralino ? [...next[turno.id].centralino] : [];
+    const c = next[turno.id].centralino;
+    next[turno.id].centralino = Array.isArray(c)
+      ? { pre: { people: c, orario: "" }, post: { people: [], orario: "" } }
+      : (c || { pre: { people: [], orario: "" }, post: { people: [], orario: "" } });
+    return next;
+  };
+  const setPerson = (half, idx, value) => {
+    const next = ensure();
+    const slot = next[turno.id].centralino[half] || { people: [], orario: "" };
+    const arr = [...(slot.people || [])];
     arr[idx] = value || null;
-    next[turno.id].centralino = arr.filter((x, i) => i < 3);
+    slot.people = arr.filter((x, i) => i < 3);
+    next[turno.id].centralino[half] = slot;
     saveAssign(next);
   };
+  const setOrario = (half, value) => {
+    const next = ensure();
+    const slot = next[turno.id].centralino[half] || { people: [], orario: "" };
+    slot.orario = value;
+    next[turno.id].centralino[half] = slot;
+    saveAssign(next);
+  };
+
   return (
     <div style={S.centralinoBox}>
       <div style={S.galleyTitle}>☎️ Centralino — chi risponde al telefono</div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {[0, 1, 2].map((i) => (
-          <select key={i} style={{ ...S.slotSelect, minWidth: 150 }} value={cur[i] || ""} onChange={(e) => set(i, e.target.value)}>
-            <option value="">— nessuno —</option>
-            {present.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        ))}
-      </div>
+      {HALF_KEYS.map((half) => {
+        const slot = data[half] || { people: [], orario: "" };
+        const present = presentIn(half);
+        return (
+          <div key={half} style={{ marginTop: 10 }}>
+            <div style={S.centralinoHalfRow}>
+              <span style={S.centralinoHalfLabel}>{halfIcon(turno, half)} {halfLabel(turno, half)}</span>
+              <input
+                style={{ ...S.crewTimeInput, maxWidth: 150 }}
+                value={slot.orario || ""}
+                onChange={(e) => setOrario(half, e.target.value)}
+                placeholder="Orario (es. 19:00-23:30)"
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[0, 1, 2].map((i) => (
+                <select key={i} style={{ ...S.slotSelect, minWidth: 140 }} value={slot.people?.[i] || ""} onChange={(e) => setPerson(half, i, e.target.value)}>
+                  <option value="">— nessuno —</option>
+                  {present.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1886,6 +1978,8 @@ const S = {
   crewTimesRow: { display: "flex", gap: 6, marginBottom: 10 },
   crewTimeInput: { flex: 1, minWidth: 0, background: "var(--panel)", color: "var(--ink-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 8px", fontSize: 12 },
   centralinoBox: { background: "rgba(91,155,240,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },
+  centralinoHalfRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 },
+  centralinoHalfLabel: { fontSize: 13, fontWeight: 600, color: "var(--ink)" },
   sheetTimes: { fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 },
   sheetCentralino: { fontSize: 14, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" },
   sizeToggle: { display: "flex", gap: 3, background: "var(--panel)", borderRadius: 8, padding: 3 },
