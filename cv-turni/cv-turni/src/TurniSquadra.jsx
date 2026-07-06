@@ -352,7 +352,9 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   // alert attivo sul turno + la persona è ASSENTE su quel turno
   const myReplacementRequests = useMemo(() => {
     if (!personId) return [];
+    if (me?.permesso) return []; // chi è in permesso non deve cercare rimpiazzi
     return turni.filter((t) => {
+      if (isPast(t)) return false; // i turni passati non chiedono più rimpiazzi
       const al = alerts[t.id];
       if (!al?.active) return false;
       const a = availability[t.id]?.[personId];
