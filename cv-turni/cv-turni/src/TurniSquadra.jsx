@@ -894,27 +894,59 @@ function autoAssign(turni, allPeople, availability, crewsFor) {
 }
 
 /* ---------- auto cambusa con vincolo distanza ---------- */
+/* ---------- statistiche "giro cambusa" ----------
+   Dato l'elenco turni in ordine cronologico e le assegnazioni cambusa,
+   calcola per ogni persona: quante volte ha portato (count) e a quanti
+   turni fa risale l'ultima volta rispetto a un turno target (lastGap).
+   Usato sia per proporre chi tocca, sia per avvisare se scegli chi l'ha
+   portata da poco. Conta TUTTI i turni allo stesso modo. */
+const GALLEY_RECENT = 3; // "da poco" = portata negli ultimi 3 turni
+
+function galleyOrder(turni) {
+  return [...turni].sort((a, b) => a.date - b.date);
+}
+function galleyCounts(turni, galley) {
+  const order = galleyOrder(turni);
+  const count = {};
+  const lastIdx = {};
+  order.forEach((t, idx) => {
+    (galley[t.id] || []).forEach((id) => {
+      if (!id) return;
+      count[id] = (count[id] || 0) + 1;
+      lastIdx[id] = idx;
+    });
+  });
+  return { order, count, lastIdx };
+}
+// da quanti turni una persona non porta la cambusa, rispetto al turno target
+function galleyGapForPerson(turni, galley, turnoId, personId) {
+  const { order, lastIdx } = galleyCounts(turni, galley);
+  const targetIdx = order.findIndex((t) => t.id === turnoId);
+  if (lastIdx[personId] === undefined) return Infinity; // mai portata
+  return targetIdx - lastIdx[personId];
+}
+
 function autoGalley(turni, people, availability, existing) {
-  // persone presenti per turno = chi ha disponibilità non-assente in almeno una metà
+  const order = galleyOrder(turni);
   const lastIndex = {}; // personId -> ultimo indice turno in cui ha portato
+  const count = {};     // personId -> volte totali
   const out = {};
-  turni.forEach((t, idx) => {
+  order.forEach((t, idx) => {
     const present = people.filter((p) => {
+      if (p.permesso) return false;
       const a = availability[t.id]?.[p.id];
       return a && (a.pre === "ENTRAMBE" || a.post === "ENTRAMBE");
     });
-    // ordina per "più lontano dall'ultima volta", poi meno volte fatto
-    const counts = {};
-    Object.values(out).flat().forEach((id) => (counts[id] = (counts[id] || 0) + 1));
+    // ordina per: chi è più indietro nel giro (gap grande), poi chi ha portato meno volte
     const ranked = present
       .map((p) => ({
         id: p.id,
         gap: lastIndex[p.id] === undefined ? 999 : idx - lastIndex[p.id],
-        count: counts[p.id] || 0,
+        count: count[p.id] || 0,
       }))
       .sort((a, b) => b.gap - a.gap || a.count - b.count);
     const chosen = ranked.slice(0, 2).map((r) => r.id);
-    chosen.forEach((id) => (lastIndex[id] = idx));
+    chosen.forEach((id) => { lastIndex[id] = idx; count[id] = (count[id] || 0) + 1; });
     out[t.id] = chosen;
   });
   return out;
@@ -1067,6 +1099,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
 
                   <GalleyEditor
                     turno={t}
+                    turni={turni}
                     people={people}
                     pById={pById}
                     availability={availability}
@@ -1571,13 +1604,35 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
   );
 }
 
-/* ---------- editor cambusa ---------- */
-function GalleyEditor({ turno, people, pById, availability, galley, saveGalley }) {
+/* ---------- editor cambusa (misto: propone il giro, avvisa se scegli chi l'ha fatta da poco) ---------- */
+function GalleyEditor({ turno, turni, people, pById, availability, galley, saveGalley }) {
   const cur = galley[turno.id] || [];
-  const present = people.filter((p) => {
+
+  // presenti a questo turno (esclusi permessi)
+  const present = useMemo(() => people.filter((p) => {
+    if (p.permesso) return false;
     const a = availability[turno.id]?.[p.id];
     return a && (a.pre === "ENTRAMBE" || a.post === "ENTRAMBE");
-  });
+  }), [people, availability, turno.id]);
+
+  // statistiche del giro (conta tutti i turni)
+  const { count } = useMemo(() => galleyCounts(turni, galley), [turni, galley]);
+  const gapOf = (pid) => galleyGapForPerson(turni, galley, turno.id, pid);
+
+  // ordina i presenti per "chi tocca": prima chi non l'ha mai fatta / gap maggiore, poi meno volte
+  const ranked = useMemo(() => {
+    return [...present].sort((a, b) => {
+      const ga = gapOf(a.id), gb = gapOf(b.id);
+      if (gb !== ga) return gb - ga; // gap maggiore prima
+      const ca = count[a.id] || 0, cb = count[b.id] || 0;
+      if (ca !== cb) return ca - cb; // meno volte prima
+      return a.name.localeCompare(b.name);
+    });
+  }, [present, count, turni, galley, turno.id]);
+
+  // i due suggeriti dal giro (esclusi quelli già scelti manualmente per non ripeterli)
+  const suggeriti = ranked.filter((p) => !cur.includes(p.id)).slice(0, 2);
+
   const set = (idx, value) => {
     const next = JSON.parse(JSON.stringify(galley));
     const arr = next[turno.id] ? [...next[turno.id]] : [];
@@ -1585,18 +1640,51 @@ function GalleyEditor({ turno, people, pById, availability, galley, saveGalley }
     next[turno.id] = arr.filter((x, i) => i < 2);
     saveGalley(next);
   };
+  const applicaSuggeriti = () => {
+    const next = JSON.parse(JSON.stringify(galley));
+    next[turno.id] = suggeriti.map((p) => p.id).slice(0, 2);
+    saveGalley(next);
+  };
+
   return (
     <div style={S.galleyBox}>
       <div style={S.galleyTitle}>🍝 Cambusa — chi porta da mangiare</div>
+
+      <div style={S.galleyHint}>
+        <span>
+          {suggeriti.length > 0
+            ? <>Tocca a: <b>{suggeriti.map((p) => p.name).join(" e ")}</b></>
+            : "Nessun suggerimento disponibile"}
+        </span>
+        {suggeriti.length > 0 && (
+          <button className="tap" style={S.galleySuggBtn} onClick={applicaSuggeriti}>Usa suggeriti</button>
+        )}
+      </div>
+
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {[0, 1].map((i) => (
-          <select key={i} style={{ ...S.slotSelect, minWidth: 160 }} value={cur[i] || ""} onChange={(e) => set(i, e.target.value)}>
-            <option value="">— scegli —</option>
-            {present.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        ))}
+        {[0, 1].map((i) => {
+          const val = cur[i];
+          const gap = val ? gapOf(val) : Infinity;
+          const recent = val && gap !== Infinity && gap < GALLEY_RECENT;
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <select
+                style={{ ...S.slotSelect, minWidth: 160, ...(recent ? { borderColor: "var(--c-pre)" } : {}) }}
+                value={val || ""}
+                onChange={(e) => set(i, e.target.value)}
+              >
+                <option value="">— scegli —</option>
+                {ranked.map((p) => {
+                  const c = count[p.id] || 0;
+                  return <option key={p.id} value={p.id}>{p.name}{c ? ` (${c}×)` : " (mai)"}</option>;
+                })}
+              </select>
+              {recent && (
+                <span style={S.galleyWarn}>⚠️ l'ha portata da poco ({gap} {gap === 1 ? "turno" : "turni"} fa)</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1964,6 +2052,9 @@ const S = {
 
   galleyBox: { background: "rgba(31,174,90,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 6 },
   galleyTitle: { fontSize: 14, fontWeight: 700, marginBottom: 10 },
+  galleyHint: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 13, color: "var(--ink-soft)", background: "rgba(31,174,90,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10 },
+  galleySuggBtn: { background: "var(--cv)", color: "#fff", border: 0, padding: "6px 12px", borderRadius: 8, fontWeight: 700, fontSize: 12 },
+  galleyWarn: { fontSize: 11, color: "var(--c-pre)" },
 
   addRow: { display: "flex", gap: 8, alignItems: "center", marginBottom: 20, flexWrap: "wrap" },
   checkPill: { display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: "var(--ink-soft)", background: "var(--panel)", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--line)" },
