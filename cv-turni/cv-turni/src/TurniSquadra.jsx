@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { enablePush, pushSupported, notificationsGranted, sendPush } from "./pwa.js";
+
+/* Apre WhatsApp con un messaggio già pronto da inviare al gruppo squadra.
+   Non serve alcun server: usa il link ufficiale wa.me / whatsapp://.
+   L'utente preme solo "invia" nel gruppo. */
+function shareWhatsApp(text) {
+  const encoded = encodeURIComponent(text);
+  // wa.me funziona su telefono (apre l'app) e su desktop (WhatsApp Web)
+  window.open(`https://wa.me/?text=${encoded}`, "_blank");
+}
 
 /* =========================================================================
    CROCEVERDE APM — Gestione Turni Squadra
@@ -296,38 +304,11 @@ function SaveDot({ state }) {
 /* ===========================================================================
    COMPAGNI — inserimento disponibilità (semplice, grande, leggibile)
    =========================================================================== */
-function NotificationButton({ personId }) {
-  const [state, setState] = useState(notificationsGranted() ? "on" : "idle");
-  const [msg, setMsg] = useState("");
-
-  if (!pushSupported()) {
-    return (
-      <div style={{ ...S.notifBar, marginLeft: 4 }}>
-        🔔 Le notifiche non sono supportate su questo browser. Su iPhone: aggiungi
-        prima l'app alla schermata Home, poi riprova da lì.
-      </div>
-    );
-  }
-
-  const click = async () => {
-    setState("loading");
-    const r = await enablePush(personId);
-    if (r.ok) { setState("on"); setMsg("Notifiche attive! Ti avviseremo per i turni scoperti e le pubblicazioni."); }
-    else if (r.reason === "permesso-negato") { setState("idle"); setMsg("Permesso negato. Puoi riattivarlo dalle impostazioni del browser."); }
-    else if (r.reason === "manca-vapid") { setState("idle"); setMsg("Le notifiche push non sono ancora configurate dal caposquadra."); }
-    else { setState("idle"); setMsg("Non è stato possibile attivare le notifiche su questo dispositivo."); }
-  };
-
-  if (state === "on") {
-    return <div style={{ ...S.notifBar, marginLeft: 4, borderColor: "var(--c-both)", color: "var(--c-both)" }}>✓ Notifiche attive{msg ? ` — ${msg}` : ""}</div>;
-  }
-
+function NotificationButton() {
   return (
-    <div style={{ marginLeft: 4, marginBottom: 4 }}>
-      <button style={S.notifBtn} onClick={click} disabled={state === "loading"}>
-        {state === "loading" ? "Attivo…" : "🔔 Attiva le notifiche"}
-      </button>
-      {msg && <div style={{ ...S.helper, marginTop: 6 }}>{msg}</div>}
+    <div style={{ ...S.notifBar, marginLeft: 4 }}>
+      💬 Gli avvisi (turni scoperti, equipaggi pubblicati) arrivano sul gruppo
+      WhatsApp della squadra. Tieni d'occhio il gruppo!
     </div>
   );
 }
@@ -874,11 +855,10 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
     saveAlerts(next);
     if (cur.active) {
       const t = turni.find((x) => x.id === turnoId);
-      sendPush({
-        title: "Serve un rimpiazzo! 🔴",
-        body: t ? `Turno ${t.label}: siamo scoperti, chi è assente cerchi un sostituto.` : "Turno scoperto: serve un rimpiazzo.",
-        url: "/",
-      });
+      const msg = t
+        ? `🔴 SERVE UN RIMPIAZZO — turno ${t.label}\nSiamo scoperti: chi è assente cerchi un sostituto. Aggiornate le disponibilità sull'app. Grazie!`
+        : "🔴 Serve un rimpiazzo per un turno scoperto. Controllate l'app.";
+      shareWhatsApp(msg);
     }
   };
 
@@ -965,7 +945,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                       style={{ ...S.alertBtn, ...(al?.active ? S.alertBtnOn : {}) }}
                       onClick={() => toggleAlert(t.id)}
                     >
-                      {al?.active ? "✓ Avviso rimpiazzo attivo — annulla" : "🔔 Manda \"devi cercare rimpiazzo!\" agli assenti"}
+                      {al?.active ? "✓ Avviso rimpiazzo attivo — annulla" : "💬 Avvisa \"cerca rimpiazzo!\" su WhatsApp"}
                     </button>
                     {al?.active && (
                       <span style={S.helper}>
@@ -1025,14 +1005,37 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
     [turno, people, assignments, availability, crewsFor, pById]
   );
 
+  const buildTextSummary = () => {
+    const lines = [`📋 EQUIPAGGI — ${turno.label} ${turno.date.getFullYear()}`, ""];
+    sheet.halves.forEach((h) => {
+      if (!h.crews.length) return;
+      const icon = turno.kind === "diurna" ? "☀️" : (h.key === "pre" ? "🌙" : "🌃");
+      lines.push(`${icon} ${h.label}`);
+      h.crews.forEach((c) => {
+        lines.push(`  Equipaggio ${c.n}:`);
+        const line = (role, s) => lines.push(`   • ${role}: ${s ? s.name + (s.ext ? " (rimpiazzo)" : "") : "— scoperto —"}`);
+        line("Autista", c.autista);
+        line("Capo", c.capo);
+        c.soccorritori.forEach((s, i) => line(c.soccorritori.length === 1 ? "Soccorritore" : `Soccorritore ${i + 1}`, s));
+      });
+      lines.push("");
+    });
+    const anyAbsent = MOTIVI_ORDER.some((k) => sheet.byReason[k].length);
+    if (anyAbsent) {
+      lines.push("Assenti:");
+      MOTIVI_ORDER.forEach((k) => {
+        if (sheet.byReason[k].length) lines.push(`  ${MOTIVI[k].label}: ${sheet.byReason[k].join(", ")}`);
+      });
+      lines.push("");
+    }
+    if (msg && msg.trim()) lines.push(msg.trim());
+    return lines.join("\n");
+  };
+
   const publish = () => {
     const next = { ...published, [turno.id]: { at: new Date().toISOString(), message: msg } };
     savePublished(next);
-    sendPush({
-      title: "Equipaggi pubblicati 📋",
-      body: `Il foglio del turno ${turno.label} è pronto. Apri l'app per vedere gli equipaggi.`,
-      url: "/",
-    });
+    shareWhatsApp(buildTextSummary());
   };
   const unpublish = () => {
     const next = { ...published };
@@ -1060,7 +1063,7 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
             <button style={S.ghostBtn} onClick={unpublish}>Ritira</button>
           </>
         ) : (
-          <button style={S.primaryBtn} onClick={publish}>✅ Pubblica gli equipaggi</button>
+          <button style={S.primaryBtn} onClick={publish}>✅ Pubblica e invia su WhatsApp</button>
         )}
         <button style={S.ghostBtn} onClick={() => downloadSheetPDF(turno, sheet, msg)}>⬇️ Scarica PDF</button>
       </div>
