@@ -1,0 +1,32 @@
+{
+  "name": "Turni Squadra · Croceverde APM",
+  "short_name": "Turni Squadra",
+  "description": "Gestione turni, equipaggi e disponibilità della squadra Croceverde APM Milano",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
