@@ -14,6 +14,19 @@ export async function registerSW() {
   if (!("serviceWorker" in navigator)) return null;
   try {
     const reg = await navigator.serviceWorker.register("/sw.js");
+
+    // controlla subito se c'è una versione più nuova del service worker
+    reg.update().catch(() => {});
+
+    // quando un nuovo service worker prende il controllo, ricarica una volta
+    // (così l'utente vede immediatamente la versione aggiornata, niente schermo nero)
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
     return reg;
   } catch (e) {
     console.warn("[PWA] registrazione service worker fallita:", e);
