@@ -1070,6 +1070,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                     saveAssign={saveAssign}
                   />
 
+                  <AbsentDetails turno={t} people={people} availability={availability} />
+
                   <div style={S.alertControlRow}>
                     <button
                       style={{ ...S.alertBtn, ...(al?.active ? S.alertBtnOn : {}) }}
@@ -1434,6 +1436,7 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
 
   // assenti raggruppati per motivo (solo chi NON è in permesso e ha messo "assente" su tutto)
   const byReason = { lavoro: [], studio: [], sanitaria: [], altro: [] };
+  const absentDetails = []; // per il caposquadra: nome + motivo + commento privato
   const notResponded = [];
   people.forEach((p) => {
     if (p.permesso) return; // i permessi non compaiono
@@ -1443,9 +1446,11 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
     if (fullyAbsent) {
       const r = MOTIVI[a.reason] ? a.reason : "altro";
       byReason[r].push(p.name);
+      absentDetails.push({ name: p.name, reason: r, note: a.note || "" });
     }
   });
   Object.keys(byReason).forEach((k) => byReason[k].sort((x, y) => x.localeCompare(y)));
+  absentDetails.sort((a, b) => a.name.localeCompare(b.name));
   notResponded.sort((x, y) => x.localeCompare(y));
 
   const centralino = HALF_KEYS.map((key) => ({
@@ -1466,7 +1471,7 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
     });
   }));
 
-  return { halves, byReason, notResponded, centralino, permessi, rimpiazzi };
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -1599,6 +1604,41 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
           ))}
           <option value="__ext__">+ Rimpiazzo da altra squadra…</option>
         </select>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- dettaglio assenti per il caposquadra (motivo + commento privato) ---------- */
+function AbsentDetails({ turno, people, availability }) {
+  const rows = useMemo(() => {
+    const out = [];
+    people.forEach((p) => {
+      if (p.permesso) return;
+      const a = availability[turno.id]?.[p.id];
+      if (!a) return;
+      const fullyAbsent = a.pre === "ASSENTE" && a.post === "ASSENTE";
+      if (fullyAbsent) {
+        const r = MOTIVI[a.reason] ? a.reason : "altro";
+        out.push({ name: p.name, reason: r, note: a.note || "" });
+      }
+    });
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }, [turno.id, people, availability]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={S.absDetailBox}>
+      <div style={S.galleyTitle}>🙅 Assenti e motivi <span style={S.absDetailPriv}>(solo tu, non finisce nel PDF/WhatsApp)</span></div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.map((r) => (
+          <div key={r.name} style={S.absDetailRow}>
+            <span style={{ fontWeight: 600 }}>{r.name}</span>
+            <span style={S.absDetailReason}>{MOTIVI[r.reason].icon} {MOTIVI[r.reason].label}</span>
+            {r.note && <span style={S.absDetailNote}>“{r.note}”</span>}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -2055,6 +2095,11 @@ const S = {
   galleyHint: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 13, color: "var(--ink-soft)", background: "rgba(31,174,90,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10 },
   galleySuggBtn: { background: "var(--cv)", color: "#fff", border: 0, padding: "6px 12px", borderRadius: 8, fontWeight: 700, fontSize: 12 },
   galleyWarn: { fontSize: 11, color: "var(--c-pre)" },
+  absDetailBox: { background: "rgba(226,87,76,.05)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },
+  absDetailPriv: { fontSize: 11, fontWeight: 400, color: "var(--ink-soft)" },
+  absDetailRow: { display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", fontSize: 14 },
+  absDetailReason: { fontSize: 12, color: "var(--ink-soft)", background: "var(--panel-2)", padding: "2px 8px", borderRadius: 10 },
+  absDetailNote: { fontSize: 13, fontStyle: "italic", color: "var(--c-pre)" },
 
   addRow: { display: "flex", gap: 8, alignItems: "center", marginBottom: 20, flexWrap: "wrap" },
   checkPill: { display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: "var(--ink-soft)", background: "var(--panel)", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--line)" },
