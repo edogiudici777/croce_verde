@@ -89,6 +89,26 @@ function isPast(turno) {
   today.setHours(0, 0, 0, 0);
   return turno.date < today;
 }
+// ricostruisce un oggetto turno da un id ("2026-05-05" o "2026-05-30:diurna")
+function turnoFromId(id) {
+  const isDiurna = id.endsWith(":diurna");
+  const dateStr = isDiurna ? id.slice(0, -":diurna".length) : id;
+  const d = parseISO(dateStr);
+  return {
+    id,
+    kind: isDiurna ? "diurna" : "notte",
+    date: d,
+    label: fmt(d),
+  };
+}
+
+// un turno resta "attivo" (visibile in home, modificabile dal capo) fino alla FINE del giorno dopo il turno.
+// Va in archivio solo dal secondo giorno successivo.
+function stillActive(turno) {
+  const limit = addDays(turno.date, 2); // inizio di due giorni dopo
+  limit.setHours(0, 0, 0, 0);
+  return new Date() < limit;
+}
 function genTurni(startISO, n) {
   const start = parseISO(startISO);
   const out = [];
@@ -365,7 +385,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   const me = people.find((p) => p.id === personId);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
   const futureTurni = useMemo(() => turni.filter((t) => !isPast(t)), [turni]);
-  const publishedTurni = useMemo(() => turni.filter((t) => published[t.id] && !isPast(t)), [turni, published]);
+  const publishedTurni = useMemo(() => turni.filter((t) => published[t.id] && stillActive(t)), [turni, published]);
 
   // turni in cui a questa persona è stato chiesto un rimpiazzo:
   // alert attivo sul turno + la persona è ASSENTE su quel turno
@@ -515,7 +535,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             </div>
           )}
 
-          <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {me.name.split(" ")[0]}!</div>
+          <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
           {me.permesso ? (
             <div style={{ ...S.bigCard, marginTop: 8, borderColor: "var(--c-post)" }}>
@@ -727,7 +747,7 @@ function emptyRow() {
   return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, centralino: 0 };
 }
 
-function ReportCapo({ people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley }) {
+function ReportCapo({ people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished }) {
   // mesi disponibili: quelli nei reports + il mese corrente
   const nowMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
   const monthKeys = useMemo(() => {
@@ -740,56 +760,26 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
   const [year, setYear] = useState(String(new Date().getFullYear()));
 
   const importStorico = () => {
-    // 1) anagrafica squadra dallo stato Excel (ruoli + vincoli)
-    const newPeople = seedStorico.elenco
-      .filter((e) => (e.stato || "").toLowerCase() !== "dimissionaria")
-      .map((e, i) => {
-        const ruolo = (e.ruolo || "").toLowerCase();
-        const roles = ["soccorritore"];
-        if (ruolo.includes("av")) roles.push("autista");
-        if (ruolo.includes("cs")) roles.push("capo");
-        const stato = (e.stato || "").toLowerCase();
-        const hide = {};
-        if (stato.includes("solo f24") || stato.includes("f24/")) hide.post = true; // solo prima mezzanotte
-        if (stato.includes("no weekend")) hide.weekend = true;
-        return {
-          id: "p" + (i + 1),
-          name: `${e.cognome} ${e.nome}`.trim(),
-          roles,
-          permesso: stato === "permesso",
-          hide,
-        };
-      });
-    savePeople(newPeople);
+    // 1) anagrafica squadra (già pronta nel seed, con cognome/ruoli/vincoli)
+    savePeople(JSON.parse(JSON.stringify(seedStorico.people)));
 
-    // 2) report storici mensili
-    const next = JSON.parse(JSON.stringify(reports));
-    Object.entries(seedStorico.reports).forEach(([mk, data]) => {
-      const persone = {};
-      Object.entries(data.persone).forEach(([cognome, v]) => {
-        persone[cognome] = {
-          presenze: v.presenze, perc: v.perc, H24: v.H24, gettone: v.gettone,
-          stazionamento: v.stazionamento, equi1: v.equi1, equi2: v.equi2, centralino: v.centralino,
-        };
-      });
-      next[mk] = { nturni: data.nturni, persone };
-    });
-    saveReports(next);
+    // 2) turni storici archiviati: assegnazioni, config, cambusa, pubblicati
+    saveAssign({ ...assignments, ...seedStorico.assignments });
+    saveConfig({ ...config, ...seedStorico.config });
+    savePublished({ ...published, ...seedStorico.published });
 
-    // importa anche lo storico cambusa nel "giro" (conta nel totale)
-    const cognomeOfLocal = (p) => p.name.trim().split(" ")[0];
-    const idByCognome = {};
-    newPeople.forEach((p) => { idByCognome[cognomeOfLocal(p)] = p.id; });
-    const nextGalley = JSON.parse(JSON.stringify(galley || {}));
+    // 3) cambusa: date storiche dei turni (già dentro assignments come galley) + storico giro
+    const nextGalley = { ...galley, ...seedStorico.galley };
     let idx = 0;
-    Object.entries(seedStorico.cambusa).forEach(([cognome, dates]) => {
-      const pid = idByCognome[cognome];
-      if (!pid) return;
-      dates.forEach((d) => {
-        nextGalley[`histgalley:${cognome}:${d}:${idx++}`] = [pid];
-      });
+    Object.entries(seedStorico.cambusa_hist || {}).forEach(([cognome, dates]) => {
+      const p = seedStorico.people.find((pp) => pp.cognome === cognome);
+      if (!p) return;
+      dates.forEach((d) => { nextGalley[`histgalley:${cognome}:${d}:${idx++}`] = [p.id]; });
     });
     saveGalley(nextGalley);
+
+    // 4) report mensili
+    saveReports({ ...reports, ...seedStorico.reports });
 
     saveImported({ done: true, at: new Date().toISOString() });
   };
@@ -808,8 +798,8 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
     saveReports(next);
   };
 
-  // cognomi da mostrare: quelli nel report + tutta la squadra (per cognome)
-  const cognomeOf = (p) => p.name.trim().split(" ")[0];
+  // cognomi da mostrare: quelli nel report + tutta la squadra
+  const cognomeOf = (p) => p.cognome || p.name.trim().split(" ")[0];
   const allCognomi = useMemo(() => {
     const set = new Set(people.map(cognomeOf));
     Object.values(reports).forEach((r) => Object.keys(r.persone || {}).forEach((c) => set.add(c)));
@@ -943,12 +933,19 @@ function ReportTable({ cognomi, getRow, editable, onCell, hidePerc }) {
 }
 
 /* ---------- Archivio: turni passati in sola lettura ---------- */
-function ArchivioCapo({ turni, people, availability, assignments, crewsFor }) {
+function ArchivioCapo({ turni, people, availability, assignments, crewsFor, published }) {
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
-  const past = useMemo(
-    () => turni.filter((t) => isPast(t)).sort((a, b) => b.date - a.date), // più recenti in cima
-    [turni]
-  );
+  const past = useMemo(() => {
+    // unisci i turni generati con quelli storici importati (presenti in assignments/published)
+    const byId = {};
+    turni.forEach((t) => { byId[t.id] = t; });
+    [...Object.keys(assignments || {}), ...Object.keys(published || {})].forEach((id) => {
+      if (!byId[id]) byId[id] = turnoFromId(id);
+    });
+    return Object.values(byId)
+      .filter((t) => !stillActive(t))
+      .sort((a, b) => b.date - a.date);
+  }, [turni, assignments, published]);
   const [open, setOpen] = useState(null);
 
   if (past.length === 0) {
@@ -1257,7 +1254,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {turni.filter((t) => !isPast(t)).map((t) => {
+        {turni.filter((t) => stillActive(t)).map((t) => {
           const isOpen = open === t.id;
           const a = assignments[t.id];
           const stats = coverageStats(t, a, crewsFor);
@@ -1332,6 +1329,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                   />
 
                   <AbsentDetails turno={t} people={people} availability={availability} />
+
+                  <F3D3Toggle turno={t} assignments={assignments} saveAssign={saveAssign} />
 
                   <div style={S.alertControlRow}>
                     <button
@@ -1866,6 +1865,29 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
           <option value="__ext__">+ Rimpiazzo da altra squadra…</option>
         </select>
       </div>
+    </div>
+  );
+}
+
+/* ---------- toggle F3/D3 (notte divisa in due, turno "sfortunato") ---------- */
+function F3D3Toggle({ turno, assignments, saveAssign }) {
+  const cur = assignments[turno.id]?.f3d3 || "";
+  const set = (val) => {
+    const next = JSON.parse(JSON.stringify(assignments));
+    if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
+    next[turno.id].f3d3 = next[turno.id].f3d3 === val ? "" : val;
+    saveAssign(next);
+  };
+  const opts = turno.kind === "diurna" ? [["D3", "D3 (pomeriggio diviso)"]] : [["F3", "F3 (prima metà divisa)"], ["D3", "D3 (seconda metà divisa)"], ["F3/D3", "Entrambe"]];
+  return (
+    <div style={S.f3d3Box}>
+      <span style={S.f3d3Label}>🌗 Notte divisa (turno sfortunato):</span>
+      {opts.map(([val, lbl]) => (
+        <button key={val} className="tap"
+          style={{ ...S.f3d3Btn, ...(cur === val ? S.f3d3BtnOn : {}) }}
+          onClick={() => set(val)}>{lbl}</button>
+      ))}
+      {cur && <span style={S.f3d3Active}>attivo: {cur}</span>}
     </div>
   );
 }
@@ -2446,6 +2468,11 @@ const S = {
   repTd: { padding: "6px 8px", textAlign: "center", borderBottom: "1px solid var(--line)", color: "var(--ink)" },
   repTdHot: { background: "rgba(240,168,48,.06)" },
   repInput: { width: 52, background: "var(--panel)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 6, padding: "4px 6px", textAlign: "center", fontSize: 13 },
+  f3d3Box: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "rgba(155,120,240,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginTop: 12 },
+  f3d3Label: { fontSize: 13, fontWeight: 600, color: "var(--ink)" },
+  f3d3Btn: { background: "var(--panel-2)", color: "var(--ink-soft)", border: "1px solid var(--line)", padding: "5px 10px", borderRadius: 8, fontSize: 12 },
+  f3d3BtnOn: { background: "#7c5cf0", color: "#fff", borderColor: "#7c5cf0", fontWeight: 700 },
+  f3d3Active: { fontSize: 11, color: "#9b78f0", fontWeight: 700 },
 
   // pubblicazione
   publishBox: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },
