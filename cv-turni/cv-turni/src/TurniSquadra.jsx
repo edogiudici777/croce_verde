@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import seedStorico from "./seed_storico.json";
 
 /* Apre WhatsApp con un messaggio già pronto da inviare al gruppo squadra.
    Non serve alcun server: usa il link ufficiale wa.me / whatsapp://.
@@ -133,6 +134,8 @@ const KEY_GALLEY = "cv:galley";           // { [turnoId]: [personId, personId] }
 const KEY_CONFIG = "cv:config";           // { [turnoId]: { pre:nCrews, post:nCrews } }
 const KEY_ALERTS = "cv:alerts";           // { [turnoId]: { active:bool, resolved:{ [personId]: {sub, role, squad} } } }
 const KEY_PUBLISHED = "cv:published";     // { [turnoId]: { at:iso, message:string } }
+const KEY_REPORTS = "cv:reports";         // { [YYYY-MM]: { nturni, persone:{ [cognome]: {...counts} } } } — override/storico
+const KEY_IMPORTED = "cv:imported";       // { done: bool } — flag storico già importato
 
 async function sget(key, fallback) {
   try {
@@ -166,6 +169,8 @@ export default function App() {
   const [config, setConfig] = useState({});
   const [alerts, setAlerts] = useState({});
   const [published, setPublished] = useState({});
+  const [reports, setReports] = useState({});
+  const [imported, setImported] = useState({});
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
 
@@ -188,6 +193,8 @@ export default function App() {
       const cfg = await sget(KEY_CONFIG, {});
       const al = await sget(KEY_ALERTS, {});
       const pub = await sget(KEY_PUBLISHED, {});
+      const rep = await sget(KEY_REPORTS, {});
+      const imp = await sget(KEY_IMPORTED, {});
       setPeople(p);
       setAvailability(a);
       setAssignments(as);
@@ -195,6 +202,8 @@ export default function App() {
       setConfig(cfg);
       setAlerts(al);
       setPublished(pub);
+      setReports(rep);
+      setImported(imp);
       setLoading(false);
     })();
   }, []);
@@ -213,6 +222,8 @@ export default function App() {
   const saveConfig = (next) => { setConfig(next); persist(KEY_CONFIG, next); };
   const saveAlerts = (next) => { setAlerts(next); persist(KEY_ALERTS, next); };
   const savePublished = (next) => { setPublished(next); persist(KEY_PUBLISHED, next); };
+  const saveReports = (next) => { setReports(next); persist(KEY_REPORTS, next); };
+  const saveImported = (next) => { setImported(next); persist(KEY_IMPORTED, next); };
 
   // numero equipaggi per metà di un turno (default EQUIPAGGI_PER_META).
   // Una diurna è un turno unico: di default 1 equipaggio sulla metà "pre", 0 sulla "post".
@@ -269,6 +280,10 @@ export default function App() {
             saveAlerts={saveAlerts}
             published={published}
             savePublished={savePublished}
+            reports={reports}
+            saveReports={saveReports}
+            imported={imported}
+            saveImported={saveImported}
           />
         </CapoGate>
       )}
@@ -517,9 +532,14 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
           </p>
 
           <div style={S.turniGrid} className="stagger">
-            {futureTurni.map((t) => {
+            {futureTurni
+              .filter((t) => !(me?.hide?.weekend && t.kind === "diurna"))
+              .map((t) => {
               const cur = availability[t.id]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
               const isDiurna = t.kind === "diurna";
+              const hidePre = !!me?.hide?.pre;
+              const hidePost = !!me?.hide?.post;
+              const bothHalves = !hidePre && !hidePost;
               const quickActive =
                 cur.pre === "ENTRAMBE" && cur.post === "ENTRAMBE" ? "TUTTO" :
                 cur.pre === "ENTRAMBE" && cur.post === "ASSENTE" ? "PRIMA" :
@@ -536,6 +556,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                     </div>
                   </div>
 
+                  {bothHalves && (
                   <div style={S.quickRow}>
                     {[
                       ["TUTTO", "Tutto il turno"],
@@ -552,10 +573,11 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                       </button>
                     ))}
                   </div>
+                  )}
 
                   <div style={S.halfRow}>
-                    <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />
-                    <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />
+                    {!hidePre && <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />}
+                    {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
                   </div>
 
                   {cur.pre === "ASSENTE" && cur.post === "ASSENTE" && (
@@ -669,6 +691,7 @@ function CapoView(props) {
           ["turni", "Turni & equipaggi"],
           ["persone", "Squadra"],
           ["classifiche", "Classifiche"],
+          ["report", "Report"],
           ["archivio", "Archivio"],
         ].map(([k, l]) => (
           <button key={k} className="tap tabline" style={{ ...S.subnavBtn, ...(section === k ? S.subnavOn : {}) }} onClick={() => setSection(k)}>
@@ -680,9 +703,242 @@ function CapoView(props) {
       {section === "turni" && <TurniCapo {...props} />}
       {section === "persone" && <PersoneCapo {...props} />}
       {section === "classifiche" && <Classifiche {...props} />}
+      {section === "report" && <ReportCapo {...props} />}
       {section === "archivio" && <ArchivioCapo {...props} />}
       </div>
     </main>
+  );
+}
+
+/* ---------- Report mensili e annuali ---------- */
+const REPORT_COLS = [
+  { key: "presenze", label: "Presenze" },
+  { key: "perc", label: "% pres." },
+  { key: "H24", label: "H24" },
+  { key: "gettone", label: "Gettone" },
+  { key: "stazionamento", label: "Stazion." },
+  { key: "equi1", label: "1° equi" },
+  { key: "equi2", label: "2° equi", hot: true },
+  { key: "centralino", label: "Centralino", hot: true },
+];
+const MESI_LABEL = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
+
+function emptyRow() {
+  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, centralino: 0 };
+}
+
+function ReportCapo({ people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley }) {
+  // mesi disponibili: quelli nei reports + il mese corrente
+  const nowMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
+  const monthKeys = useMemo(() => {
+    const set = new Set(Object.keys(reports));
+    set.add(nowMonth);
+    return [...set].sort().reverse();
+  }, [reports, nowMonth]);
+  const [view, setView] = useState("mese"); // mese | anno
+  const [month, setMonth] = useState(monthKeys[0] || nowMonth);
+  const [year, setYear] = useState(String(new Date().getFullYear()));
+
+  const importStorico = () => {
+    // 1) anagrafica squadra dallo stato Excel (ruoli + vincoli)
+    const newPeople = seedStorico.elenco
+      .filter((e) => (e.stato || "").toLowerCase() !== "dimissionaria")
+      .map((e, i) => {
+        const ruolo = (e.ruolo || "").toLowerCase();
+        const roles = ["soccorritore"];
+        if (ruolo.includes("av")) roles.push("autista");
+        if (ruolo.includes("cs")) roles.push("capo");
+        const stato = (e.stato || "").toLowerCase();
+        const hide = {};
+        if (stato.includes("solo f24") || stato.includes("f24/")) hide.post = true; // solo prima mezzanotte
+        if (stato.includes("no weekend")) hide.weekend = true;
+        return {
+          id: "p" + (i + 1),
+          name: `${e.cognome} ${e.nome}`.trim(),
+          roles,
+          permesso: stato === "permesso",
+          hide,
+        };
+      });
+    savePeople(newPeople);
+
+    // 2) report storici mensili
+    const next = JSON.parse(JSON.stringify(reports));
+    Object.entries(seedStorico.reports).forEach(([mk, data]) => {
+      const persone = {};
+      Object.entries(data.persone).forEach(([cognome, v]) => {
+        persone[cognome] = {
+          presenze: v.presenze, perc: v.perc, H24: v.H24, gettone: v.gettone,
+          stazionamento: v.stazionamento, equi1: v.equi1, equi2: v.equi2, centralino: v.centralino,
+        };
+      });
+      next[mk] = { nturni: data.nturni, persone };
+    });
+    saveReports(next);
+
+    // importa anche lo storico cambusa nel "giro" (conta nel totale)
+    const cognomeOfLocal = (p) => p.name.trim().split(" ")[0];
+    const idByCognome = {};
+    newPeople.forEach((p) => { idByCognome[cognomeOfLocal(p)] = p.id; });
+    const nextGalley = JSON.parse(JSON.stringify(galley || {}));
+    let idx = 0;
+    Object.entries(seedStorico.cambusa).forEach(([cognome, dates]) => {
+      const pid = idByCognome[cognome];
+      if (!pid) return;
+      dates.forEach((d) => {
+        nextGalley[`histgalley:${cognome}:${d}:${idx++}`] = [pid];
+      });
+    });
+    saveGalley(nextGalley);
+
+    saveImported({ done: true, at: new Date().toISOString() });
+  };
+
+  const setCell = (mk, cognome, col, value) => {
+    const next = JSON.parse(JSON.stringify(reports));
+    if (!next[mk]) next[mk] = { nturni: 0, persone: {} };
+    if (!next[mk].persone[cognome]) next[mk].persone[cognome] = emptyRow();
+    next[mk].persone[cognome][col] = Number(value) || 0;
+    saveReports(next);
+  };
+  const setNturni = (mk, value) => {
+    const next = JSON.parse(JSON.stringify(reports));
+    if (!next[mk]) next[mk] = { nturni: 0, persone: {} };
+    next[mk].nturni = Number(value) || 0;
+    saveReports(next);
+  };
+
+  // cognomi da mostrare: quelli nel report + tutta la squadra (per cognome)
+  const cognomeOf = (p) => p.name.trim().split(" ")[0];
+  const allCognomi = useMemo(() => {
+    const set = new Set(people.map(cognomeOf));
+    Object.values(reports).forEach((r) => Object.keys(r.persone || {}).forEach((c) => set.add(c)));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [people, reports]);
+
+  // totale annuale: somma tutti i mesi dell'anno scelto
+  const annual = useMemo(() => {
+    const out = {};
+    Object.entries(reports).forEach(([mk, r]) => {
+      if (!mk.startsWith(year + "-")) return;
+      Object.entries(r.persone || {}).forEach(([cognome, v]) => {
+        if (!out[cognome]) out[cognome] = emptyRow();
+        REPORT_COLS.forEach((c) => { if (c.key !== "perc") out[cognome][c.key] += (v[c.key] || 0); });
+      });
+    });
+    return out;
+  }, [reports, year]);
+
+  const years = useMemo(() => {
+    const set = new Set(Object.keys(reports).map((k) => k.slice(0, 4)));
+    set.add(String(new Date().getFullYear()));
+    return [...set].sort().reverse();
+  }, [reports]);
+
+  const monthData = reports[month] || { nturni: 0, persone: {} };
+
+  return (
+    <>
+      <div style={S.toolbar}>
+        <div>
+          <h2 style={{ ...S.h2, margin: 0 }}>Report</h2>
+          <p style={{ ...S.helper, margin: "2px 0 0" }}>
+            Chi fa i turni scomodi (dopomezza e centralino, evidenziati) va premiato. Le celle sono modificabili.
+          </p>
+        </div>
+        {!imported?.done && (
+          <button className="tap" style={S.primaryBtn} onClick={() => {
+            if (window.confirm("Importa la squadra (27 persone con ruoli e vincoli), i report di maggio–luglio e lo storico cambuse dall'Excel. Sostituisce l'elenco attuale della squadra. Procedere?")) importStorico();
+          }}>⬇️ Importa squadra e storico</button>
+        )}
+      </div>
+
+      <div style={S.subnav}>
+        <button className="tap" style={{ ...S.subnavBtn, ...(view === "mese" ? S.subnavOn : {}) }} onClick={() => setView("mese")}>Per mese</button>
+        <button className="tap" style={{ ...S.subnavBtn, ...(view === "anno" ? S.subnavOn : {}) }} onClick={() => setView("anno")}>Totale annuale</button>
+      </div>
+
+      {view === "mese" ? (
+        <>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <select style={S.slotSelect} value={month} onChange={(e) => setMonth(e.target.value)}>
+              {monthKeys.map((mk) => {
+                const [y, m] = mk.split("-");
+                return <option key={mk} value={mk}>{MESI_LABEL[Number(m) - 1]} {y}</option>;
+              })}
+            </select>
+            <label style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+              n° turni:{" "}
+              <input type="number" min="0" style={{ ...S.slotSelect, width: 70 }} value={monthData.nturni || 0}
+                onChange={(e) => setNturni(month, e.target.value)} />
+            </label>
+          </div>
+          <ReportTable
+            cognomi={allCognomi}
+            getRow={(c) => monthData.persone[c] || emptyRow()}
+            editable
+            onCell={(c, col, v) => setCell(month, c, col, v)}
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+            <select style={S.slotSelect} value={year} onChange={(e) => setYear(e.target.value)}>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <span style={S.helper}>Somma di tutti i mesi del {year}</span>
+          </div>
+          <ReportTable
+            cognomi={allCognomi}
+            getRow={(c) => annual[c] || emptyRow()}
+            editable={false}
+            hidePerc
+          />
+        </>
+      )}
+    </>
+  );
+}
+
+function ReportTable({ cognomi, getRow, editable, onCell, hidePerc }) {
+  const cols = hidePerc ? REPORT_COLS.filter((c) => c.key !== "perc") : REPORT_COLS;
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={S.repTable}>
+        <thead>
+          <tr>
+            <th style={{ ...S.repTh, textAlign: "left" }}>Cognome</th>
+            {cols.map((c) => (
+              <th key={c.key} style={{ ...S.repTh, ...(c.hot ? S.repThHot : {}) }}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cognomi.map((cog) => {
+            const row = getRow(cog);
+            return (
+              <tr key={cog}>
+                <td style={{ ...S.repTd, textAlign: "left", fontWeight: 600 }}>{cog}</td>
+                {cols.map((c) => (
+                  <td key={c.key} style={{ ...S.repTd, ...(c.hot ? S.repTdHot : {}) }}>
+                    {editable ? (
+                      <input
+                        type="number" min="0"
+                        style={S.repInput}
+                        value={row[c.key] || 0}
+                        onChange={(e) => onCell(cog, c.key, e.target.value)}
+                      />
+                    ) : (
+                      row[c.key] || 0
+                    )}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -909,6 +1165,11 @@ function galleyCounts(turni, galley) {
   const order = galleyOrder(turni);
   const count = {};
   const lastIdx = {};
+  // storico importato (chiavi "histgalley:...") conta nel totale ma non nel "gap recente"
+  Object.entries(galley || {}).forEach(([key, ids]) => {
+    if (!key.startsWith("histgalley:")) return;
+    (ids || []).forEach((id) => { if (id) count[id] = (count[id] || 0) + 1; });
+  });
   order.forEach((t, idx) => {
     (galley[t.id] || []).forEach((id) => {
       if (!id) return;
@@ -1834,12 +2095,19 @@ function PersoneCapo({ people, savePeople }) {
   const remove = (pid) => savePeople(people.filter((p) => p.id !== pid));
   const togglePermesso = (pid) =>
     savePeople(people.map((p) => (p.id === pid ? { ...p, permesso: !p.permesso } : p)));
+  const toggleHide = (pid, slot) =>
+    savePeople(people.map((p) => {
+      if (p.id !== pid) return p;
+      const hide = { ...(p.hide || {}) };
+      hide[slot] = !hide[slot];
+      return { ...p, hide };
+    }));
 
   return (
     <>
       <h2 style={S.h2}>La squadra</h2>
       <p style={{ ...S.helper, marginTop: -8, marginBottom: 16 }}>
-        Marca chi è autista e/o capo. Chi è <b>in permesso</b> non deve compilare le disponibilità e viene escluso da conteggi e solleciti.
+        Marca chi è autista e/o capo. Chi è <b>in permesso</b> non compila. Con i tag "no…" nascondi a quella persona gli slot che non le competono (es. chi fa solo prima di mezzanotte, o niente weekend).
       </p>
       <div style={S.addRow}>
         <input style={{ ...S.slotSelect, flex: 1, minWidth: 160 }} placeholder="Nome e cognome" value={name}
@@ -1862,6 +2130,12 @@ function PersoneCapo({ people, savePeople }) {
                 <RolePill on={p.roles.includes("autista")} onClick={() => toggleRole(p.id, "autista")}>🚑 Autista</RolePill>
                 <RolePill on={p.roles.includes("capo")} onClick={() => toggleRole(p.id, "capo")}>⭐ Capo</RolePill>
                 <RolePill on={p.permesso} onClick={() => togglePermesso(p.id)}>🌴 Permesso</RolePill>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <span style={S.hideLabel}>Non chiedere:</span>
+                <RolePill on={p.hide?.pre} onClick={() => toggleHide(p.id, "pre")}>no prima mezz.</RolePill>
+                <RolePill on={p.hide?.post} onClick={() => toggleHide(p.id, "post")}>no dopo mezz.</RolePill>
+                <RolePill on={p.hide?.weekend} onClick={() => toggleHide(p.id, "weekend")}>no weekend</RolePill>
               </div>
             </div>
             <button style={S.removeBtn} onClick={() => remove(p.id)} title="Rimuovi">✕</button>
@@ -2165,6 +2439,13 @@ const S = {
 
   // permesso
   permTag: { fontSize: 11, fontWeight: 700, color: "var(--c-post)", marginLeft: 6 },
+  hideLabel: { fontSize: 11, color: "var(--ink-soft)", alignSelf: "center" },
+  repTable: { borderCollapse: "collapse", width: "100%", fontSize: 13, minWidth: 640 },
+  repTh: { background: "var(--panel-2)", color: "var(--ink-soft)", fontWeight: 700, padding: "8px 10px", textAlign: "center", borderBottom: "1px solid var(--line)", whiteSpace: "nowrap" },
+  repThHot: { background: "rgba(240,168,48,.18)", color: "var(--c-pre)" },
+  repTd: { padding: "6px 8px", textAlign: "center", borderBottom: "1px solid var(--line)", color: "var(--ink)" },
+  repTdHot: { background: "rgba(240,168,48,.06)" },
+  repInput: { width: 52, background: "var(--panel)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 6, padding: "4px 6px", textAlign: "center", fontSize: 13 },
 
   // pubblicazione
   publishBox: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },

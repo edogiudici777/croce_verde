@@ -1,0 +1,1034 @@
+{
+  "elenco": [
+    {
+      "cognome": "Boscarato",
+      "nome": "Chiara",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Calvo",
+      "nome": "Giambattista",
+      "ruolo": "CS",
+      "stato": "solo F24"
+    },
+    {
+      "cognome": "Corradi",
+      "nome": "Franco",
+      "ruolo": "AV/CS",
+      "stato": ""
+    },
+    {
+      "cognome": "De Combarieu",
+      "nome": "Emma",
+      "ruolo": "Socc",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Di Liberto",
+      "nome": "Melania",
+      "ruolo": "CS",
+      "stato": ""
+    },
+    {
+      "cognome": "Dossena",
+      "nome": "Stefano Carlo",
+      "ruolo": "AV/CS",
+      "stato": "solo F24/ F3"
+    },
+    {
+      "cognome": "Dugoni",
+      "nome": "Sergio",
+      "ruolo": "AV/CS",
+      "stato": ""
+    },
+    {
+      "cognome": "Giordano",
+      "nome": "Luca",
+      "ruolo": "AV/CS",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Giudici",
+      "nome": "Edoardo Eugenio",
+      "ruolo": "Socc",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Guarnerio",
+      "nome": "Marco",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Kauffmann",
+      "nome": "Carolina",
+      "ruolo": "AV/CS",
+      "stato": ""
+    },
+    {
+      "cognome": "Licitra",
+      "nome": "Alessia",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Lionti",
+      "nome": "Elisa Ludovica Vittoria",
+      "ruolo": "Socc",
+      "stato": "dimissionaria"
+    },
+    {
+      "cognome": "Manenti",
+      "nome": "Barbara",
+      "ruolo": "Allievo",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Manini",
+      "nome": "Luciano",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Mariotti D'Alessandro",
+      "nome": "Lorenza",
+      "ruolo": "CS",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Pagliano",
+      "nome": "Marco",
+      "ruolo": "AV/CS",
+      "stato": ""
+    },
+    {
+      "cognome": "Pizzagalli",
+      "nome": "Sara",
+      "ruolo": "CS",
+      "stato": "solo F24, no weekend"
+    },
+    {
+      "cognome": "Rantas",
+      "nome": "Sofia Elena",
+      "ruolo": "CS",
+      "stato": "a chiamata"
+    },
+    {
+      "cognome": "Razza",
+      "nome": "Giovanni Paolo",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Ressa",
+      "nome": "Elena Anna Angela",
+      "ruolo": "Socc",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Rovere",
+      "nome": "Leonardo",
+      "ruolo": "AV/CS",
+      "stato": "a chiamata"
+    },
+    {
+      "cognome": "Saletti",
+      "nome": "Francesca Maria",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Schupbach Gattinoni",
+      "nome": "Amanda",
+      "ruolo": "Socc",
+      "stato": "permesso"
+    },
+    {
+      "cognome": "Sinelli",
+      "nome": "Edoardo",
+      "ruolo": "Socc",
+      "stato": ""
+    },
+    {
+      "cognome": "Somaglino",
+      "nome": "Tiziana",
+      "ruolo": "CS",
+      "stato": "solo F24"
+    },
+    {
+      "cognome": "Tornotti",
+      "nome": "Francesco",
+      "ruolo": "AV/CS",
+      "stato": ""
+    }
+  ],
+  "cambusa": {
+    "Boscarato": [
+      "2026-04-05",
+      "2026-06-04"
+    ],
+    "Di Liberto": [
+      "2026-05-05"
+    ],
+    "Dossena": [
+      "2026-05-25"
+    ],
+    "Dugoni": [
+      "2026-04-05",
+      "2026-07-14"
+    ],
+    "Licitra": [
+      "2026-05-25"
+    ],
+    "Lionti": [
+      "2026-04-25"
+    ],
+    "Manini": [
+      "2026-06-14"
+    ],
+    "Pizzagalli": [
+      "2026-06-24"
+    ],
+    "Razza": [
+      "2026-05-15"
+    ],
+    "Ressa": [
+      "2026-04-25"
+    ],
+    "Saletti": [
+      "2026-04-15",
+      "2026-06-24"
+    ],
+    "Schupbach Gattinoni": [
+      "2026-04-15"
+    ],
+    "Sinelli": [
+      "2026-06-04"
+    ],
+    "Somaglino": [
+      "2026-05-05",
+      "2026-07-14"
+    ],
+    "Tornotti": [
+      "2026-05-15"
+    ]
+  },
+  "reports": {
+    "2026-05": {
+      "nturni": 5,
+      "persone": {
+        "Boscarato": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 1,
+          "gettone": 1,
+          "stazionamento": 1,
+          "equi1": 2,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Calvo": {
+          "presenze": 2,
+          "perc": 40,
+          "H24": 2,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Corradi": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 2,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "De Combarieu": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Di Liberto": {
+          "presenze": 5,
+          "perc": 100,
+          "H24": 2,
+          "gettone": 1,
+          "stazionamento": 1,
+          "equi1": 0,
+          "equi2": 3,
+          "centralino": 0
+        },
+        "Dossena": {
+          "presenze": 5,
+          "perc": 100,
+          "H24": 2,
+          "gettone": 2,
+          "stazionamento": 1,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Dugoni": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 1,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Giordano": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Giudici": {
+          "presenze": 2,
+          "perc": 40,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Guarnerio": {
+          "presenze": 2,
+          "perc": 40,
+          "H24": 2,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Licitra": {
+          "presenze": 2,
+          "perc": 40,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Lionti": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Manenti": {
+          "presenze": 1,
+          "perc": 20,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Manini": {
+          "presenze": 5,
+          "perc": 100,
+          "H24": 1,
+          "gettone": 1,
+          "stazionamento": 2,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Mariotti D'Alessandro": {
+          "presenze": 1,
+          "perc": 20,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Pagliano": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 2,
+          "gettone": 0,
+          "stazionamento": 1,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Pizzagalli": {
+          "presenze": 2,
+          "perc": 40,
+          "H24": 2,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Rantas": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Razza": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 1,
+          "gettone": 2,
+          "stazionamento": 1,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Ressa": {
+          "presenze": 1,
+          "perc": 20,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Rovere": {
+          "presenze": 1,
+          "perc": 20,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Saletti": {
+          "presenze": 3,
+          "perc": 60,
+          "H24": 2,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Schupbach Gattinoni": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Sinelli": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 3,
+          "centralino": 0
+        },
+        "Somaglino": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 0,
+          "gettone": 2,
+          "stazionamento": 2,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Tornotti": {
+          "presenze": 4,
+          "perc": 80,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 2,
+          "equi1": 2,
+          "equi2": 0,
+          "centralino": 0
+        }
+      }
+    },
+    "2026-06": {
+      "nturni": 3,
+      "persone": {
+        "Boscarato": {
+          "presenze": 3,
+          "perc": 100,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Calvo": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Corradi": {
+          "presenze": 1,
+          "perc": 33.33333333333333,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "De Combarieu": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Di Liberto": {
+          "presenze": 3,
+          "perc": 100,
+          "H24": 2,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 2,
+          "centralino": 0
+        },
+        "Dossena": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 1,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Dugoni": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 2,
+          "centralino": 0
+        },
+        "Giordano": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Giudici": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Guarnerio": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 1,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Kauffmann": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 2,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Licitra": {
+          "presenze": 3,
+          "perc": 100,
+          "H24": 0,
+          "gettone": 2,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Lionti": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Manenti": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Manini": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 1,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Mariotti D'Alessandro": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Pagliano": {
+          "presenze": 1,
+          "perc": 33.33333333333333,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Pizzagalli": {
+          "presenze": 1,
+          "perc": 33.33333333333333,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Rantas": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Razza": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 2,
+          "centralino": 0
+        },
+        "Ressa": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Rovere": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Saletti": {
+          "presenze": 1,
+          "perc": 33.33333333333333,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Schupbach Gattinoni": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Sinelli": {
+          "presenze": 3,
+          "perc": 100,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 2,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Somaglino": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 0,
+          "gettone": 2,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Tornotti": {
+          "presenze": 2,
+          "perc": 66.66666666666666,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 2,
+          "equi2": 0,
+          "centralino": 0
+        }
+      }
+    },
+    "2026-07": {
+      "nturni": 4,
+      "persone": {
+        "Boscarato": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Calvo": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Corradi": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "De Combarieu": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Di Liberto": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Dossena": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Dugoni": {
+          "presenze": 2,
+          "perc": 50,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 2,
+          "centralino": 0
+        },
+        "Giordano": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Giudici": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Guarnerio": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Kauffmann": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Licitra": {
+          "presenze": 2,
+          "perc": 50,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Lionti": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Manenti": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 1
+        },
+        "Manini": {
+          "presenze": 2,
+          "perc": 50,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 1
+        },
+        "Mariotti D'Alessandro": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 1
+        },
+        "Pagliano": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Pizzagalli": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 1
+        },
+        "Rantas": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Razza": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 1,
+          "centralino": 0
+        },
+        "Ressa": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Rovere": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Saletti": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 1,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Schupbach Gattinoni": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Sinelli": {
+          "presenze": 0,
+          "perc": 0,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Somaglino": {
+          "presenze": 1,
+          "perc": 25,
+          "H24": 0,
+          "gettone": 1,
+          "stazionamento": 0,
+          "equi1": 0,
+          "equi2": 0,
+          "centralino": 0
+        },
+        "Tornotti": {
+          "presenze": 2,
+          "perc": 50,
+          "H24": 0,
+          "gettone": 0,
+          "stazionamento": 0,
+          "equi1": 1,
+          "equi2": 1,
+          "centralino": 0
+        }
+      }
+    }
+  }
+}
