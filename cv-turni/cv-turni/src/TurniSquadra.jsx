@@ -748,14 +748,98 @@ function emptyRow() {
   return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0 };
 }
 
-function ReportCapo({ people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished }) {
+// id dei turni già presenti nello storico importato (per non ricontarli)
+const HIST_IDS = new Set(Object.keys(seedStorico.assignments || {}));
+
+// mese "YYYY-MM" da un turnoId ("2026-05-15" o "2026-05-30:diurna")
+function monthOfTurnoId(id) {
+  return (id.endsWith(":diurna") ? id.slice(0, -":diurna".length) : id).slice(0, 7);
+}
+
+// estrae gli id delle persone in un equipaggio
+function crewIds(c) {
+  if (!c) return [];
+  return [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean);
+}
+
+// calcola i conteggi report dai turni ASSEGNATI IN APP e già passati (esclude lo storico importato).
+// Regola: presenza 1/turno; +1 per equipaggio nella colonna; D3 = 2° equipaggio post se f3d3 include D3.
+// Ritorna { [YYYY-MM]: { nturni, persone: { [cognome]: {counts} } } }
+function computeReportsFromApp(turni, assignments, pById) {
+  const cognomeOf = (id) => pById[id]?.cognome || pById[id]?.name?.split(" ")[0];
+  const out = {};
+  const ensureMonth = (mk) => { if (!out[mk]) out[mk] = { nturni: 0, persone: {} }; return out[mk]; };
+  const ensurePers = (mk, cog) => { const m = ensureMonth(mk); if (!m.persone[cog]) m.persone[cog] = emptyRow(); return m.persone[cog]; };
+
+  turni.forEach((t) => {
+    if (!isPast(t)) return;              // solo turni passati
+    if (HIST_IDS.has(t.id)) return;      // lo storico importato è già nella base: non ricontarlo
+    const a = assignments[t.id];
+    if (!a) return;
+    const mk = monthOfTurnoId(t.id);
+    ensureMonth(mk).nturni += 1;
+    const present = new Set();
+    const addCat = (id, cat) => {
+      const cog = cognomeOf(id); if (!cog) return;
+      ensurePers(mk, cog)[cat] += 1; present.add(cog);
+    };
+    // pre: [0]=H24, [1]=gettone, eventuale "Stazionamento"
+    (a.pre || []).forEach((c, i) => {
+      const cat = (c.name === "Stazionamento") ? "stazionamento" : (i === 0 ? "H24" : "gettone");
+      crewIds(c).forEach((id) => addCat(id, cat));
+    });
+    // post: [0]=1equi, [1]=2equi
+    (a.post || []).forEach((c, i) => {
+      crewIds(c).forEach((id) => addCat(id, i === 0 ? "equi1" : "equi2"));
+    });
+    // D3: 2° equipaggio del post, solo se attivo
+    if ((a.f3d3 || "").includes("D3") && (a.post || []).length > 1) {
+      crewIds(a.post[1]).forEach((id) => { const cog = cognomeOf(id); if (cog) ensurePers(mk, cog).d3 += 1; });
+    }
+    // centralino
+    const centr = a.centralino;
+    const centrIds = Array.isArray(centr) ? centr : [...(centr?.pre?.people || []), ...(centr?.post?.people || [])];
+    centrIds.filter(Boolean).forEach((id) => addCat(id, "centralino"));
+    // presenze
+    present.forEach((cog) => { ensurePers(mk, cog).presenze += 1; });
+  });
+  return out;
+}
+
+// fonde base (storico/manuale) + auto (turni app). Le celle della base hanno precedenza se modificate a mano.
+function mergeReports(base, auto) {
+  const months = new Set([...Object.keys(base || {}), ...Object.keys(auto || {})]);
+  const out = {};
+  months.forEach((mk) => {
+    const b = base?.[mk] || { nturni: 0, persone: {} };
+    const au = auto?.[mk] || { nturni: 0, persone: {} };
+    const persone = {};
+    const cogs = new Set([...Object.keys(b.persone || {}), ...Object.keys(au.persone || {})]);
+    cogs.forEach((cog) => {
+      const rb = b.persone?.[cog] || emptyRow();
+      const ra = au.persone?.[cog] || emptyRow();
+      const row = {};
+      Object.keys(emptyRow()).forEach((k) => { if (k !== "perc") row[k] = (rb[k] || 0) + (ra[k] || 0); });
+      const nturni = (b.nturni || 0) + (au.nturni || 0);
+      row.perc = nturni ? Math.round(100 * row.presenze / nturni) : 0;
+      persone[cog] = row;
+    });
+    out[mk] = { nturni: (b.nturni || 0) + (au.nturni || 0), persone };
+  });
+  return out;
+}
+
+function ReportCapo({ turni, people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished }) {
   // mesi disponibili: quelli nei reports + il mese corrente
+  const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
+  const autoReports = useMemo(() => computeReportsFromApp(turni, assignments, pById), [turni, assignments, pById]);
+  const merged = useMemo(() => mergeReports(reports, autoReports), [reports, autoReports]);
   const nowMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
   const monthKeys = useMemo(() => {
-    const set = new Set(Object.keys(reports));
+    const set = new Set(Object.keys(merged));
     set.add(nowMonth);
     return [...set].sort().reverse();
-  }, [reports, nowMonth]);
+  }, [merged, nowMonth]);
   const [view, setView] = useState("mese"); // mese | anno
   const [month, setMonth] = useState(monthKeys[0] || nowMonth);
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -799,18 +883,18 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
     saveReports(next);
   };
 
-  // cognomi da mostrare: quelli nel report + tutta la squadra
+  // cognomi da mostrare: quelli nei report fusi + tutta la squadra
   const cognomeOf = (p) => p.cognome || p.name.trim().split(" ")[0];
   const allCognomi = useMemo(() => {
     const set = new Set(people.map(cognomeOf));
-    Object.values(reports).forEach((r) => Object.keys(r.persone || {}).forEach((c) => set.add(c)));
+    Object.values(merged).forEach((r) => Object.keys(r.persone || {}).forEach((c) => set.add(c)));
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [people, reports]);
+  }, [people, merged]);
 
-  // totale annuale: somma tutti i mesi dell'anno scelto
+  // totale annuale: somma tutti i mesi dell'anno scelto (dai dati fusi)
   const annual = useMemo(() => {
     const out = {};
-    Object.entries(reports).forEach(([mk, r]) => {
+    Object.entries(merged).forEach(([mk, r]) => {
       if (!mk.startsWith(year + "-")) return;
       Object.entries(r.persone || {}).forEach(([cognome, v]) => {
         if (!out[cognome]) out[cognome] = emptyRow();
@@ -818,15 +902,15 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
       });
     });
     return out;
-  }, [reports, year]);
+  }, [merged, year]);
 
   const years = useMemo(() => {
-    const set = new Set(Object.keys(reports).map((k) => k.slice(0, 4)));
+    const set = new Set(Object.keys(merged).map((k) => k.slice(0, 4)));
     set.add(String(new Date().getFullYear()));
     return [...set].sort().reverse();
-  }, [reports]);
+  }, [merged]);
 
-  const monthData = reports[month] || { nturni: 0, persone: {} };
+  const monthData = merged[month] || { nturni: 0, persone: {} };
 
   return (
     <>
@@ -834,7 +918,7 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
         <div>
           <h2 style={{ ...S.h2, margin: 0 }}>Report</h2>
           <p style={{ ...S.helper, margin: "2px 0 0" }}>
-            Chi fa i turni scomodi (dopomezza e centralino, evidenziati) va premiato. Le celle sono modificabili.
+            Somma lo storico importato e i turni che assegni in app (contati quando diventano passati). Dopomezza, centralino e D3 sono evidenziati: chi li fa va premiato. Le celle sono modificabili.
           </p>
         </div>
         <button className="tap" style={S.primaryBtn} onClick={() => {
@@ -2316,16 +2400,19 @@ function RolePill({ on, onClick, children }) {
 function Classifiche({ turni, people, assignments, galley, reports }) {
   const stats = useMemo(() => {
     const cognomeOf = (p) => p.cognome || p.name.trim().split(" ")[0];
+    const pById = Object.fromEntries(people.map((p) => [p.id, p]));
+    // report fusi: base storica/manuale + auto-calcolo dai turni assegnati in app
+    const auto = computeReportsFromApp(turni, assignments, pById);
+    const mergedR = mergeReports(reports || {}, auto);
     const byCognome = {};
     people.forEach((p) => {
       byCognome[cognomeOf(p)] = { name: p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
     });
-    // somma tutti i mesi dei report (contengono tutto lo storico importato)
-    Object.values(reports || {}).forEach((r) => {
+    Object.values(mergedR).forEach((r) => {
       Object.entries(r.persone || {}).forEach(([cog, v]) => {
         if (!byCognome[cog]) byCognome[cog] = { name: cog, id: null, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
         byCognome[cog].presenze += v.presenze || 0;
-        byCognome[cog].dopomezza += (v.equi1 || 0) + (v.equi2 || 0); // tutto il dopo mezzanotte
+        byCognome[cog].dopomezza += (v.equi1 || 0) + (v.equi2 || 0);
         byCognome[cog].centralino += v.centralino || 0;
         byCognome[cog].d3 += v.d3 || 0;
       });
@@ -2337,7 +2424,7 @@ function Classifiche({ turni, people, assignments, galley, reports }) {
       if (p) { const k = cognomeOf(p); if (byCognome[k]) byCognome[k].galley = c; }
     });
     return Object.values(byCognome);
-  }, [turni, people, reports, galley]);
+  }, [turni, people, assignments, reports, galley]);
 
   const ranks = [
     { key: "presenze", title: "🏆 Più presenze in totale", unit: "turni" },
