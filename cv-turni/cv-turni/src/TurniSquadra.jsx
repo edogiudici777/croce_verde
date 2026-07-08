@@ -853,15 +853,9 @@ function ReportCapo({ turni, people, savePeople, reports, saveReports, imported,
     saveConfig({ ...config, ...seedStorico.config });
     savePublished({ ...published, ...seedStorico.published });
 
-    // 3) cambusa: date storiche dei turni (già dentro assignments come galley) + storico giro
-    const nextGalley = { ...galley, ...seedStorico.galley };
-    let idx = 0;
-    Object.entries(seedStorico.cambusa_hist || {}).forEach(([cognome, dates]) => {
-      const p = seedStorico.people.find((pp) => pp.cognome === cognome);
-      if (!p) return;
-      dates.forEach((d) => { nextGalley[`histgalley:${cognome}:${d}:${idx++}`] = [p.id]; });
-    });
-    saveGalley(nextGalley);
+    // 3) cambusa: le date storiche sono già dentro i turni (galley per turnoId).
+    //    Non serve duplicarle: galleyCounts le conta dai turni stessi.
+    saveGalley({ ...galley, ...seedStorico.galley });
 
     // 4) report mensili
     saveReports({ ...reports, ...seedStorico.reports });
@@ -1248,16 +1242,35 @@ function galleyCounts(turni, galley) {
   const order = galleyOrder(turni);
   const count = {};
   const lastIdx = {};
-  // storico importato (chiavi "histgalley:...") conta nel totale ma non nel "gap recente"
+  const idxById = {}; // turnoId -> indice nell'ordine (per il "gap recente")
+  order.forEach((t, idx) => { idxById[t.id] = idx; });
+
+  // Conta OGNI voce cambusa una sola volta. Le chiavi possono essere:
+  //  - un turnoId reale ("2026-05-05" o "2026-06-14:diurna")
+  //  - una voce storica "histgalley:cognome:data:n" (solo se un turno non è nella lista)
+  // Per evitare doppi conteggi: se una data ha già un turno reale con cambusa, ignoro l'eventuale histgalley della stessa data.
+  const datesWithRealGalley = new Set();
+  Object.keys(galley || {}).forEach((key) => {
+    if (key.startsWith("histgalley:")) return;
+    const d = key.endsWith(":diurna") ? key.slice(0, -":diurna".length) : key;
+    if ((galley[key] || []).some(Boolean)) datesWithRealGalley.add(d);
+  });
+
   Object.entries(galley || {}).forEach(([key, ids]) => {
     if (!key.startsWith("histgalley:")) return;
+    const parts = key.split(":"); // histgalley : cognome : data : n
+    const d = parts[2];
+    if (datesWithRealGalley.has(d)) return; // già contata dal turno reale
     (ids || []).forEach((id) => { if (id) count[id] = (count[id] || 0) + 1; });
   });
-  order.forEach((t, idx) => {
-    (galley[t.id] || []).forEach((id) => {
+
+  // turni reali (in ordine): contano e aggiornano il "gap"
+  Object.entries(galley || {}).forEach(([key, ids]) => {
+    if (key.startsWith("histgalley:")) return;
+    (ids || []).forEach((id) => {
       if (!id) return;
       count[id] = (count[id] || 0) + 1;
-      lastIdx[id] = idx;
+      if (idxById[key] !== undefined) lastIdx[id] = idxById[key];
     });
   });
   return { order, count, lastIdx };
