@@ -836,11 +836,12 @@ function ReportCapo({ people, savePeople, reports, saveReports, imported, saveIm
             Chi fa i turni scomodi (dopomezza e centralino, evidenziati) va premiato. Le celle sono modificabili.
           </p>
         </div>
-        {!imported?.done && (
-          <button className="tap" style={S.primaryBtn} onClick={() => {
-            if (window.confirm("Importa la squadra (27 persone con ruoli e vincoli), i report di maggio–luglio e lo storico cambuse dall'Excel. Sostituisce l'elenco attuale della squadra. Procedere?")) importStorico();
-          }}>⬇️ Importa squadra e storico</button>
-        )}
+        <button className="tap" style={S.primaryBtn} onClick={() => {
+          const msg = imported?.done
+            ? "Ricarica lo storico aggiornato dal file (squadra, turni in archivio, report e cambusa da maggio). Sovrascrive i dati storici con quelli del file. Procedere?"
+            : "Importa la squadra (26 persone con ruoli e vincoli), i turni storici in archivio, i report di maggio–luglio e lo storico cambuse. Sostituisce l'elenco attuale della squadra. Procedere?";
+          if (window.confirm(msg)) importStorico();
+        }}>{imported?.done ? "🔄 Ricarica storico" : "⬇️ Importa squadra e storico"}</button>
       </div>
 
       <div style={S.subnav}>
@@ -1668,7 +1669,10 @@ function slotName(v, pById) {
 function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
   const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
-    const nCrews = crewsFor(turno.id, h.key);
+    // numero equipaggi: il massimo tra quelli previsti (config) e quelli realmente salvati nei dati
+    const configured = crewsFor(turno.id, h.key);
+    const saved = (assignments[turno.id]?.[h.key] || []).length;
+    const nCrews = Math.max(configured, saved);
     const crews = [];
     for (let i = 0; i < nCrews; i++) {
       const c = assignments[turno.id]?.[h.key]?.[i] || { autista: null, capo: null, soccorritori: [], size: 4 };
