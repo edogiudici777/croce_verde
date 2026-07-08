@@ -739,12 +739,13 @@ const REPORT_COLS = [
   { key: "stazionamento", label: "Stazion." },
   { key: "equi1", label: "1° equi" },
   { key: "equi2", label: "2° equi", hot: true },
+  { key: "d3", label: "D3", hot: true },
   { key: "centralino", label: "Centralino", hot: true },
 ];
 const MESI_LABEL = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 
 function emptyRow() {
-  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, centralino: 0 };
+  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0 };
 }
 
 function ReportCapo({ people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished }) {
@@ -1185,6 +1186,81 @@ function galleyGapForPerson(turni, galley, turnoId, personId) {
   return targetIdx - lastIdx[personId];
 }
 
+/* ===========================================================================
+   HOTNESS — quanto una persona è "calda" per un posto scomodo (cambusa, centralino, D3)
+   Alta (verde) = non lo fa da tanto o mai → tocca a lei. Bassa (rosso) = l'ha fatto da poco.
+   Conta TUTTI i turni in ordine cronologico, storico incluso.
+   =========================================================================== */
+
+// estrae gli id delle persone che hanno svolto una certa attività in un turno
+function extractCentralino(a) {
+  const c = a?.centralino;
+  if (!c) return [];
+  if (Array.isArray(c)) return c.filter(Boolean);
+  return [...(c.pre?.people || []), ...(c.post?.people || [])].filter(Boolean);
+}
+// D3 = chi è nel 2° equipaggio del dopo mezzanotte, MA solo se l'opzione D3 è attiva
+function extractD3(a) {
+  const f = (a?.f3d3 || "");
+  if (!f.includes("D3")) return [];
+  const crew2 = a?.post?.[1];
+  if (!crew2) return [];
+  return [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean);
+}
+function extractGalleyFromAssign(a) { return []; } // la cambusa sta nel galley, gestita a parte
+
+// conteggio generico su tutti i turni (storico + generati) per un estrattore su assignments
+function activityCounts(turni, assignments, extractor) {
+  const order = galleyOrder(turni);
+  const count = {}; const lastIdx = {};
+  order.forEach((t, idx) => {
+    extractor(assignments[t.id]).forEach((id) => {
+      count[id] = (count[id] || 0) + 1;
+      lastIdx[id] = idx;
+    });
+  });
+  return { order, count, lastIdx };
+}
+
+// hotness 0..1 per una persona: 1 = mai fatto (caldissimo), scende se l'ha fatto di recente
+function hotnessFrom(order, lastIdx, count, turnoId, personId) {
+  const targetIdx = order.findIndex((t) => t.id === turnoId);
+  const li = lastIdx[personId];
+  if (li === undefined) return 1; // mai fatto → massimo
+  const gap = Math.max(0, (targetIdx < 0 ? order.length : targetIdx) - li);
+  // gap 0 (appena fatto) → ~0 ; gap grande → verso 1. Saturazione a ~6 turni.
+  return Math.min(1, gap / 6);
+}
+
+// colore da hotness: verde (caldo) → giallo → rosso (freddo)
+function hotColor(h) {
+  if (h >= 0.66) return "#1fae5a";      // verde: tocca a lui
+  if (h >= 0.33) return "#f0a830";      // giallo: intermedio
+  return "#e2574c";                      // rosso: l'ha fatto da poco
+}
+function hotLabel(h, count) {
+  const c = count || 0;
+  if (h >= 0.99 && c === 0) return "mai fatto";
+  if (h >= 0.66) return "tocca a lui/lei";
+  if (h >= 0.33) return "intermedio";
+  return "fatto da poco";
+}
+
+// pallino + barra colorata che indica la hotness (verde=tocca a lui, rosso=fatto da poco)
+function HotDot({ h, count, title }) {
+  const color = hotColor(h);
+  return (
+    <span title={title || `${hotLabel(h, count)}${count != null ? ` · fatto ${count}×` : ""}`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 5px ${color}66` }} />
+      <span style={{ display: "inline-block", width: 34, height: 5, borderRadius: 3, background: "var(--panel-2)", overflow: "hidden" }}>
+        <span style={{ display: "block", height: "100%", width: `${Math.round(h * 100)}%`, background: color }} />
+      </span>
+      {count != null && <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>{count}×</span>}
+    </span>
+  );
+}
+
 function autoGalley(turni, people, availability, existing) {
   const order = galleyOrder(turni);
   const lastIndex = {}; // personId -> ultimo indice turno in cui ha portato
@@ -1322,6 +1398,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
 
                   <CentralinoEditor
                     turno={t}
+                    turni={turni}
                     people={people}
                     pById={pById}
                     availability={availability}
@@ -1331,7 +1408,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
 
                   <AbsentDetails turno={t} people={people} availability={availability} />
 
-                  <F3D3Toggle turno={t} assignments={assignments} saveAssign={saveAssign} />
+                  <F3D3Toggle turno={t} turni={turni} assignments={assignments} saveAssign={saveAssign} pById={pById} />
 
                   <div style={S.alertControlRow}>
                     <button
@@ -1874,7 +1951,7 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
 }
 
 /* ---------- toggle F3/D3 (notte divisa in due, turno "sfortunato") ---------- */
-function F3D3Toggle({ turno, assignments, saveAssign }) {
+function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
   const cur = assignments[turno.id]?.f3d3 || "";
   const set = (val) => {
     const next = JSON.parse(JSON.stringify(assignments));
@@ -1883,15 +1960,52 @@ function F3D3Toggle({ turno, assignments, saveAssign }) {
     saveAssign(next);
   };
   const opts = turno.kind === "diurna" ? [["D3", "D3 (pomeriggio diviso)"]] : [["F3", "F3 (prima metà divisa)"], ["D3", "D3 (seconda metà divisa)"], ["F3/D3", "Entrambe"]];
+
+  // hotness D3 su tutti i turni (chi ha fatto il D3 = 2° equipaggio post nei turni con D3 attivo)
+  const { order, count, lastIdx } = useMemo(
+    () => activityCounts(turni, assignments, extractD3),
+    [turni, assignments]
+  );
+  const isActive = cur.includes("D3");
+  // chi è nel 2° equipaggio del dopo mezzanotte (quelli che faranno il D3)
+  const crew2 = assignments[turno.id]?.post?.[1];
+  const d3people = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
+
   return (
     <div style={S.f3d3Box}>
-      <span style={S.f3d3Label}>🌗 Notte divisa (turno sfortunato):</span>
-      {opts.map(([val, lbl]) => (
-        <button key={val} className="tap"
-          style={{ ...S.f3d3Btn, ...(cur === val ? S.f3d3BtnOn : {}) }}
-          onClick={() => set(val)}>{lbl}</button>
-      ))}
-      {cur && <span style={S.f3d3Active}>attivo: {cur}</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={S.f3d3Label}>🌗 Notte divisa (turno sfortunato):</span>
+        {opts.map(([val, lbl]) => (
+          <button key={val} className="tap"
+            style={{ ...S.f3d3Btn, ...(cur === val ? S.f3d3BtnOn : {}) }}
+            onClick={() => set(val)}>{lbl}</button>
+        ))}
+        {cur && <span style={S.f3d3Active}>attivo: {cur}</span>}
+      </div>
+      {isActive && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 6 }}>
+            Fa il D3 il <b>2° equipaggio del dopo mezzanotte</b> (esce dopo le 3). Controlla che non tocchi sempre ai soliti:
+          </div>
+          {d3people.length === 0 ? (
+            <div style={S.helper}>Assegna prima il 2° equipaggio del dopo mezzanotte.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {d3people.map((pid) => {
+                const nm = pById[pid]?.name || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : pid);
+                const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
+                return (
+                  <div key={pid} style={S.d3Row}>
+                    <span style={{ flex: 1 }}>{nm}</span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 fatti: <b>{count[pid] || 0}</b></span>
+                    <HotDot h={h} count={count[pid] || 0} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1943,8 +2057,10 @@ function GalleyEditor({ turno, turni, people, pById, availability, galley, saveG
   }), [people, availability, turno.id]);
 
   // statistiche del giro (conta tutti i turni)
-  const { count } = useMemo(() => galleyCounts(turni, galley), [turni, galley]);
+  const { order, count, lastIdx } = useMemo(() => galleyCounts(turni, galley), [turni, galley]);
   const gapOf = (pid) => galleyGapForPerson(turni, galley, turno.id, pid);
+  const hot = (pid) => hotnessFrom(order, lastIdx, count, turno.id, pid);
+  const mark = (pid) => { const h = hot(pid); return h >= 0.66 ? "🟢" : h >= 0.33 ? "🟡" : "🔴"; };
 
   // ordina i presenti per "chi tocca": prima chi non l'ha mai fatta / gap maggiore, poi meno volte
   const ranked = useMemo(() => {
@@ -1975,7 +2091,7 @@ function GalleyEditor({ turno, turni, people, pById, availability, galley, saveG
 
   return (
     <div style={S.galleyBox}>
-      <div style={S.galleyTitle}>🍝 Cambusa — chi porta da mangiare</div>
+      <div style={S.galleyTitle}>🍝 Cambusa — chi porta da mangiare <span style={S.hotHint}>🟢 tocca a lui · 🔴 fatto da poco</span></div>
 
       <div style={S.galleyHint}>
         <span>
@@ -2003,9 +2119,10 @@ function GalleyEditor({ turno, turni, people, pById, availability, galley, saveG
                 <option value="">— scegli —</option>
                 {ranked.map((p) => {
                   const c = count[p.id] || 0;
-                  return <option key={p.id} value={p.id}>{p.name}{c ? ` (${c}×)` : " (mai)"}</option>;
+                  return <option key={p.id} value={p.id}>{mark(p.id)} {p.name}{c ? ` (${c}×)` : " (mai)"}</option>;
                 })}
               </select>
+              {val && <HotDot h={hot(val)} count={count[val] || 0} />}
               {recent && (
                 <span style={S.galleyWarn}>⚠️ l'ha portata da poco ({gap} {gap === 1 ? "turno" : "turni"} fa)</span>
               )}
@@ -2018,18 +2135,27 @@ function GalleyEditor({ turno, turni, people, pById, availability, galley, saveG
 }
 
 /* ---------- editor centralino (persone al telefono, diviso per metà) ---------- */
-function CentralinoEditor({ turno, people, pById, availability, assignments, saveAssign }) {
+function CentralinoEditor({ turno, turni, people, pById, availability, assignments, saveAssign }) {
   // normalizza il dato (retrocompatibile col vecchio array)
   const raw = assignments[turno.id]?.centralino;
   const data = Array.isArray(raw)
     ? { pre: { people: raw, orario: "" }, post: { people: [], orario: "" } }
     : (raw || {});
 
+  // hotness centralino su tutti i turni
+  const { order, count, lastIdx } = useMemo(
+    () => activityCounts(turni, assignments, extractCentralino),
+    [turni, assignments]
+  );
+  const hot = (pid) => hotnessFrom(order, lastIdx, count, turno.id, pid);
+
   const presentIn = (half) =>
     people.filter((p) => {
       const a = availability[turno.id]?.[p.id];
       return a && (half === "pre" ? a.pre === "ENTRAMBE" : a.post === "ENTRAMBE");
-    });
+    }).sort((a, b) => hot(b.id) - hot(a.id)); // più "caldi" in cima
+
+  const mark = (pid) => { const h = hot(pid); return h >= 0.66 ? "🟢" : h >= 0.33 ? "🟡" : "🔴"; };
 
   const ensure = (obj) => {
     const next = JSON.parse(JSON.stringify(assignments));
@@ -2059,7 +2185,7 @@ function CentralinoEditor({ turno, people, pById, availability, assignments, sav
 
   return (
     <div style={S.centralinoBox}>
-      <div style={S.galleyTitle}>☎️ Centralino — chi risponde al telefono</div>
+      <div style={S.galleyTitle}>☎️ Centralino — chi risponde al telefono <span style={S.hotHint}>🟢 tocca a lui · 🔴 fatto da poco</span></div>
       {HALF_KEYS.map((half) => {
         const slot = data[half] || { people: [], orario: "" };
         const present = presentIn(half);
@@ -2075,14 +2201,20 @@ function CentralinoEditor({ turno, people, pById, availability, assignments, sav
               />
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[0, 1, 2].map((i) => (
-                <select key={i} style={{ ...S.slotSelect, minWidth: 140 }} value={slot.people?.[i] || ""} onChange={(e) => setPerson(half, i, e.target.value)}>
-                  <option value="">— nessuno —</option>
-                  {present.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              ))}
+              {[0, 1, 2].map((i) => {
+                const val = slot.people?.[i] || "";
+                return (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <select style={{ ...S.slotSelect, minWidth: 150 }} value={val} onChange={(e) => setPerson(half, i, e.target.value)}>
+                      <option value="">— nessuno —</option>
+                      {present.map((p) => (
+                        <option key={p.id} value={p.id}>{mark(p.id)} {p.name} ({count[p.id] || 0}×)</option>
+                      ))}
+                    </select>
+                    {val && <HotDot h={hot(val)} count={count[val] || 0} />}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
@@ -2477,6 +2609,8 @@ const S = {
   f3d3Btn: { background: "var(--panel-2)", color: "var(--ink-soft)", border: "1px solid var(--line)", padding: "5px 10px", borderRadius: 8, fontSize: 12 },
   f3d3BtnOn: { background: "#7c5cf0", color: "#fff", borderColor: "#7c5cf0", fontWeight: 700 },
   f3d3Active: { fontSize: 11, color: "#9b78f0", fontWeight: 700 },
+  hotHint: { fontSize: 10, fontWeight: 400, color: "var(--ink-soft)", marginLeft: 8 },
+  d3Row: { display: "flex", alignItems: "center", gap: 10, fontSize: 13, background: "var(--panel-2)", borderRadius: 8, padding: "6px 10px" },
 
   // pubblicazione
   publishBox: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 },

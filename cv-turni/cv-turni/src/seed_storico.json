@@ -306,6 +306,18 @@
      "name": "H24",
      "inSede": "",
      "fascia": ""
+    },
+    {
+     "autista": "p7",
+     "capo": "p25",
+     "soccorritori": [
+      "p22",
+      "p19"
+     ],
+     "size": 4,
+     "name": "Gettone 1",
+     "inSede": "",
+     "fascia": ""
     }
    ],
    "post": [
@@ -318,6 +330,18 @@
      ],
      "size": 4,
      "name": "1° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p16",
+     "capo": "p5",
+     "soccorritori": [
+      "p15",
+      "p24"
+     ],
+     "size": 4,
+     "name": "2° Equipaggio",
      "inSede": "",
      "fascia": ""
     }
@@ -351,6 +375,18 @@
      "name": "H24",
      "inSede": "",
      "fascia": ""
+    },
+    {
+     "autista": "p6",
+     "capo": "p25",
+     "soccorritori": [
+      "p19",
+      "p1"
+     ],
+     "size": 4,
+     "name": "Gettone 1",
+     "inSede": "",
+     "fascia": ""
     }
    ],
    "post": [
@@ -363,6 +399,18 @@
      ],
      "size": 4,
      "name": "1° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p3",
+     "capo": "p5",
+     "soccorritori": [
+      "p22",
+      "p24"
+     ],
+     "size": 4,
+     "name": "2° Equipaggio",
      "inSede": "",
      "fascia": ""
     }
@@ -398,6 +446,18 @@
      "name": "H24",
      "inSede": "",
      "fascia": ""
+    },
+    {
+     "autista": "p3",
+     "capo": "p17",
+     "soccorritori": [
+      "p22",
+      "p13"
+     ],
+     "size": 4,
+     "name": "Gettone 1",
+     "inSede": "",
+     "fascia": ""
     }
    ],
    "post": [
@@ -410,6 +470,18 @@
      ],
      "size": 4,
      "name": "1° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p7",
+     "capo": "p5",
+     "soccorritori": [
+      "p22",
+      "p24"
+     ],
+     "size": 4,
+     "name": "2° Equipaggio",
      "inSede": "",
      "fascia": ""
     }
@@ -461,9 +533,9 @@
    "post": [
     {
      "autista": "p6",
-     "capo": "p14",
+     "capo": "p2",
      "soccorritori": [
-      null,
+      "p21",
       null
      ],
      "size": 4,
@@ -521,6 +593,18 @@
      ],
      "size": 4,
      "name": "1° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p7",
+     "capo": "p5",
+     "soccorritori": [
+      "p19",
+      "p24"
+     ],
+     "size": 4,
+     "name": "2° Equipaggio",
      "inSede": "",
      "fascia": ""
     }
@@ -801,16 +885,16 @@
  },
  "config": {
   "2026-05-05": {
-   "pre": 1,
-   "post": 1
+   "pre": 2,
+   "post": 2
   },
   "2026-05-15": {
-   "pre": 1,
-   "post": 1
+   "pre": 2,
+   "post": 2
   },
   "2026-05-25": {
-   "pre": 1,
-   "post": 1
+   "pre": 2,
+   "post": 2
   },
   "2026-05-30:diurna": {
    "pre": 2,
@@ -818,7 +902,7 @@
   },
   "2026-06-04": {
    "pre": 2,
-   "post": 1
+   "post": 2
   },
   "2026-06-14:diurna": {
    "pre": 3,
@@ -838,53 +922,91 @@
    "nturni": 4,
    "persone": {
     "Dossena": {
-     "presenze": 3,
-     "perc": 75,
+     "presenze": 4,
+     "perc": 100,
      "H24": 2,
-     "gettone": 0,
+     "gettone": 1,
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Di Liberto": {
-     "presenze": 3,
-     "perc": 75,
-     "H24": 2,
-     "gettone": 0,
-     "stazionamento": 1,
-     "equi1": 0,
-     "equi2": 0,
-     "centralino": 0
-    },
-    "Manini": {
      "presenze": 4,
      "perc": 100,
      "H24": 2,
      "gettone": 0,
-     "stazionamento": 0,
-     "equi1": 2,
-     "equi2": 0,
-     "centralino": 2
+     "stazionamento": 1,
+     "equi1": 0,
+     "equi2": 3,
+     "d3": 0,
+     "centralino": 0
     },
-    "Dugoni": {
-     "presenze": 2,
-     "perc": 50,
-     "H24": 1,
+    "Manini": {
+     "presenze": 3,
+     "perc": 75,
+     "H24": 2,
      "gettone": 0,
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
-     "centralino": 0
+     "d3": 0,
+     "centralino": 2
     },
-    "Corradi": {
+    "Dugoni": {
      "presenze": 3,
      "perc": 75,
      "H24": 1,
-     "gettone": 0,
+     "gettone": 1,
+     "stazionamento": 0,
+     "equi1": 1,
+     "equi2": 1,
+     "d3": 0,
+     "centralino": 0
+    },
+    "Somaglino": {
+     "presenze": 3,
+     "perc": 75,
+     "H24": 0,
+     "gettone": 2,
+     "stazionamento": 1,
+     "equi1": 0,
+     "equi2": 0,
+     "d3": 0,
+     "centralino": 0
+    },
+    "Saletti": {
+     "presenze": 3,
+     "perc": 75,
+     "H24": 1,
+     "gettone": 2,
+     "stazionamento": 0,
+     "equi1": 0,
+     "equi2": 2,
+     "d3": 0,
+     "centralino": 1
+    },
+    "Razza": {
+     "presenze": 3,
+     "perc": 75,
+     "H24": 0,
+     "gettone": 2,
+     "stazionamento": 1,
+     "equi1": 0,
+     "equi2": 0,
+     "d3": 0,
+     "centralino": 0
+    },
+    "Corradi": {
+     "presenze": 4,
+     "perc": 100,
+     "H24": 1,
+     "gettone": 1,
      "stazionamento": 0,
      "equi1": 2,
-     "equi2": 0,
+     "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
     "Ressa": {
@@ -895,46 +1017,73 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Boscarato": {
      "presenze": 3,
      "perc": 75,
      "H24": 0,
-     "gettone": 0,
+     "gettone": 1,
      "stazionamento": 0,
      "equi1": 3,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
-    "Pizzagalli": {
-     "presenze": 1,
-     "perc": 25,
+    "Pagliano": {
+     "presenze": 3,
+     "perc": 75,
+     "H24": 0,
+     "gettone": 0,
+     "stazionamento": 1,
+     "equi1": 1,
+     "equi2": 1,
+     "d3": 0,
+     "centralino": 0
+    },
+    "Mariotti D'Alessandro": {
+     "presenze": 2,
+     "perc": 50,
      "H24": 1,
      "gettone": 0,
      "stazionamento": 0,
      "equi1": 0,
-     "equi2": 0,
+     "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
-    "Saletti": {
-     "presenze": 1,
-     "perc": 25,
+    "Sinelli": {
+     "presenze": 4,
+     "perc": 100,
      "H24": 1,
      "gettone": 0,
      "stazionamento": 0,
      "equi1": 0,
-     "equi2": 0,
+     "equi2": 3,
+     "d3": 0,
      "centralino": 1
     },
-    "Manenti": {
-     "presenze": 1,
-     "perc": 25,
+    "Pizzagalli": {
+     "presenze": 2,
+     "perc": 50,
      "H24": 1,
-     "gettone": 0,
+     "gettone": 1,
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 0,
+     "d3": 0,
+     "centralino": 0
+    },
+    "Manenti": {
+     "presenze": 2,
+     "perc": 50,
+     "H24": 1,
+     "gettone": 1,
+     "stazionamento": 0,
+     "equi1": 0,
+     "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Tornotti": {
@@ -945,26 +1094,7 @@
      "stazionamento": 1,
      "equi1": 2,
      "equi2": 0,
-     "centralino": 0
-    },
-    "Pagliano": {
-     "presenze": 2,
-     "perc": 50,
-     "H24": 0,
-     "gettone": 0,
-     "stazionamento": 1,
-     "equi1": 1,
-     "equi2": 0,
-     "centralino": 0
-    },
-    "Mariotti D'Alessandro": {
-     "presenze": 1,
-     "perc": 25,
-     "H24": 1,
-     "gettone": 0,
-     "stazionamento": 0,
-     "equi1": 0,
-     "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Licitra": {
@@ -975,36 +1105,29 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 1
     },
-    "Sinelli": {
-     "presenze": 2,
-     "perc": 50,
-     "H24": 1,
+    "Calvo": {
+     "presenze": 1,
+     "perc": 25,
+     "H24": 0,
      "gettone": 0,
      "stazionamento": 0,
-     "equi1": 0,
+     "equi1": 1,
      "equi2": 0,
-     "centralino": 1
-    },
-    "Razza": {
-     "presenze": 1,
-     "perc": 25,
-     "H24": 0,
-     "gettone": 0,
-     "stazionamento": 1,
-     "equi1": 0,
-     "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
-    "Somaglino": {
+    "Rovere": {
      "presenze": 1,
      "perc": 25,
      "H24": 0,
      "gettone": 0,
-     "stazionamento": 1,
-     "equi1": 0,
+     "stazionamento": 0,
+     "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     }
    }
@@ -1020,6 +1143,7 @@
      "stazionamento": 1,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Di Liberto": {
@@ -1029,7 +1153,8 @@
      "gettone": 1,
      "stazionamento": 0,
      "equi1": 0,
-     "equi2": 2,
+     "equi2": 3,
+     "d3": 1,
      "centralino": 0
     },
     "Razza": {
@@ -1039,7 +1164,8 @@
      "gettone": 0,
      "stazionamento": 0,
      "equi1": 0,
-     "equi2": 1,
+     "equi2": 2,
+     "d3": 1,
      "centralino": 0
     },
     "Corradi": {
@@ -1050,6 +1176,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Boscarato": {
@@ -1060,6 +1187,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 1,
+     "d3": 0,
      "centralino": 3
     },
     "Dugoni": {
@@ -1069,8 +1197,20 @@
      "gettone": 0,
      "stazionamento": 1,
      "equi1": 0,
-     "equi2": 1,
+     "equi2": 2,
+     "d3": 1,
      "centralino": 0
+    },
+    "Sinelli": {
+     "presenze": 3,
+     "perc": 100,
+     "H24": 1,
+     "gettone": 0,
+     "stazionamento": 0,
+     "equi1": 2,
+     "equi2": 1,
+     "d3": 1,
+     "centralino": 2
     },
     "Somaglino": {
      "presenze": 2,
@@ -1080,6 +1220,7 @@
      "stazionamento": 2,
      "equi1": 0,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Licitra": {
@@ -1090,17 +1231,8 @@
      "stazionamento": 1,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
-    },
-    "Sinelli": {
-     "presenze": 3,
-     "perc": 100,
-     "H24": 1,
-     "gettone": 0,
-     "stazionamento": 0,
-     "equi1": 2,
-     "equi2": 0,
-     "centralino": 2
     },
     "Kauffmann": {
      "presenze": 2,
@@ -1110,6 +1242,7 @@
      "stazionamento": 0,
      "equi1": 2,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Manini": {
@@ -1120,6 +1253,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 1
     },
     "Tornotti": {
@@ -1130,6 +1264,7 @@
      "stazionamento": 0,
      "equi1": 2,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Pagliano": {
@@ -1140,6 +1275,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
     "Pizzagalli": {
@@ -1150,6 +1286,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Saletti": {
@@ -1160,6 +1297,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
     "Guarnerio": {
@@ -1170,6 +1308,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 1
     }
    }
@@ -1185,6 +1324,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Di Liberto": {
@@ -1195,6 +1335,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Boscarato": {
@@ -1205,6 +1346,7 @@
      "stazionamento": 0,
      "equi1": 1,
      "equi2": 0,
+     "d3": 0,
      "centralino": 0
     },
     "Dugoni": {
@@ -1215,6 +1357,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
     "Tornotti": {
@@ -1225,6 +1368,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 0
     },
     "Manini": {
@@ -1235,6 +1379,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 1
     },
     "Licitra": {
@@ -1245,6 +1390,7 @@
      "stazionamento": 0,
      "equi1": 0,
      "equi2": 1,
+     "d3": 0,
      "centralino": 1
     }
    }
