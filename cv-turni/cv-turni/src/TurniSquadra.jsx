@@ -2313,38 +2313,44 @@ function RolePill({ on, onClick, children }) {
 /* ===========================================================================
    CLASSIFICHE
    =========================================================================== */
-function Classifiche({ turni, people, assignments, galley }) {
+function Classifiche({ turni, people, assignments, galley, reports }) {
   const stats = useMemo(() => {
-    const m = Object.fromEntries(people.map((p) => [p.id, { name: p.name, tot: 0, post: 0, pre: 0, galley: 0 }]));
-    for (const t of turni) {
-      const a = assignments[t.id];
-      if (a) {
-        for (const half of ["pre", "post"]) {
-          (a[half] || []).forEach((c) => {
-            const ids = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean);
-            ids.forEach((id) => {
-              if (!m[id]) return;
-              m[id].tot++;
-              if (half === "post") m[id].post++; else m[id].pre++;
-            });
-          });
-        }
-      }
-      (galley[t.id] || []).forEach((id) => m[id] && m[id].galley++);
-    }
-    return Object.values(m);
-  }, [turni, people, assignments, galley]);
+    const cognomeOf = (p) => p.cognome || p.name.trim().split(" ")[0];
+    const byCognome = {};
+    people.forEach((p) => {
+      byCognome[cognomeOf(p)] = { name: p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
+    });
+    // somma tutti i mesi dei report (contengono tutto lo storico importato)
+    Object.values(reports || {}).forEach((r) => {
+      Object.entries(r.persone || {}).forEach(([cog, v]) => {
+        if (!byCognome[cog]) byCognome[cog] = { name: cog, id: null, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
+        byCognome[cog].presenze += v.presenze || 0;
+        byCognome[cog].dopomezza += (v.equi1 || 0) + (v.equi2 || 0); // tutto il dopo mezzanotte
+        byCognome[cog].centralino += v.centralino || 0;
+        byCognome[cog].d3 += v.d3 || 0;
+      });
+    });
+    // cambusa dal "giro" (include storico histgalley: e turni live)
+    const { count } = galleyCounts(turni, galley);
+    Object.entries(count).forEach(([id, c]) => {
+      const p = people.find((pp) => pp.id === id);
+      if (p) { const k = cognomeOf(p); if (byCognome[k]) byCognome[k].galley = c; }
+    });
+    return Object.values(byCognome);
+  }, [turni, people, reports, galley]);
 
   const ranks = [
-    { key: "tot", title: "🏆 Più turni in totale", unit: "turni" },
-    { key: "post", title: "🌃 Re del dopomezzanotte", unit: "notti" },
+    { key: "presenze", title: "🏆 Più presenze in totale", unit: "turni" },
+    { key: "dopomezza", title: "🌃 Re del dopomezzanotte", unit: "volte" },
+    { key: "centralino", title: "☎️ Re del centralino", unit: "volte" },
+    { key: "d3", title: "🌗 Re del D3 (turno sfortunato)", unit: "D3" },
     { key: "galley", title: "🍝 Chef della cambusa", unit: "volte" },
   ];
 
   return (
     <>
       <h2 style={S.h2}>Classifiche</h2>
-      <p style={S.helper}>Aggiornate in automatico man mano che assegni gli equipaggi. Per gioco — ma anche per tenere il carico equo.</p>
+      <p style={S.helper}>Basate su tutto lo storico (report + turni assegnati). Per gioco — ma anche per tenere il carico equo e premiare chi fa le cose scomode.</p>
       <div style={S.rankGrid} className="stagger">
         {ranks.map((r) => {
           const sorted = [...stats].filter((s) => s[r.key] > 0).sort((a, b) => b[r.key] - a[r.key]).slice(0, 6);
