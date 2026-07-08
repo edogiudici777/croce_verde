@@ -846,16 +846,43 @@ function ReportCapo({ turni, people, savePeople, reports, saveReports, imported,
 
   const importStorico = () => {
     // 1) anagrafica squadra (già pronta nel seed, con cognome/ruoli/vincoli)
-    savePeople(JSON.parse(JSON.stringify(seedStorico.people)));
+    const newPeople = JSON.parse(JSON.stringify(seedStorico.people));
+    savePeople(newPeople);
+    const validIds = new Set(newPeople.map((p) => p.id));
+    const keepId = (id) => (!id || (typeof id === "string" && id.startsWith("ext:")) || validIds.has(id)) ? id : null;
 
-    // 2) turni storici archiviati: assegnazioni, config, cambusa, pubblicati
-    saveAssign({ ...assignments, ...seedStorico.assignments });
+    // 2) turni: parto dallo storico del seed, poi rimetto SOPRA gli altri turni esistenti
+    //    ma ripulendo gli id orfani (persone che non esistono più dopo l'import).
+    const cleanCrew = (c) => ({
+      ...c,
+      autista: keepId(c.autista),
+      capo: keepId(c.capo),
+      soccorritori: (c.soccorritori || []).map(keepId),
+    });
+    const cleanAssign = (a) => {
+      const out = { ...a };
+      ["pre", "post"].forEach((h) => { if (Array.isArray(out[h])) out[h] = out[h].map(cleanCrew); });
+      if (out.centralino && !Array.isArray(out.centralino)) {
+        ["pre", "post"].forEach((h) => {
+          if (out.centralino[h]?.people) out.centralino[h] = { ...out.centralino[h], people: out.centralino[h].people.map(keepId).filter(Boolean) };
+        });
+      } else if (Array.isArray(out.centralino)) {
+        out.centralino = out.centralino.map(keepId).filter(Boolean);
+      }
+      return out;
+    };
+    const mergedAssign = {};
+    Object.entries(assignments || {}).forEach(([id, a]) => { mergedAssign[id] = cleanAssign(a); });
+    Object.entries(seedStorico.assignments).forEach(([id, a]) => { mergedAssign[id] = a; }); // storico dai fogli ha la precedenza
+    saveAssign(mergedAssign);
+
     saveConfig({ ...config, ...seedStorico.config });
     savePublished({ ...published, ...seedStorico.published });
 
-    // 3) cambusa: le date storiche sono già dentro i turni (galley per turnoId).
-    //    Non serve duplicarle: galleyCounts le conta dai turni stessi.
-    saveGalley({ ...galley, ...seedStorico.galley });
+    // 3) cambusa: ripulisco anche qui gli id orfani, poi metto lo storico
+    const cleanGalley = {};
+    Object.entries(galley || {}).forEach(([id, ids]) => { cleanGalley[id] = (ids || []).map(keepId).filter(Boolean); });
+    saveGalley({ ...cleanGalley, ...seedStorico.galley });
 
     // 4) report mensili
     saveReports({ ...reports, ...seedStorico.reports });
@@ -2089,7 +2116,9 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {d3people.map((pid) => {
-                const nm = pById[pid]?.name || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : pid);
+                const nm = pById[pid]?.name
+                  || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : null)
+                  || "— (da riassegnare) —";
                 const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
                 return (
                   <div key={pid} style={S.d3Row}>
