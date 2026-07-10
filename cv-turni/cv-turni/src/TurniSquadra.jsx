@@ -387,24 +387,28 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   const futureTurni = useMemo(() => turni.filter((t) => !isPast(t)), [turni]);
   const publishedTurni = useMemo(() => turni.filter((t) => published[t.id] && stillActive(t)), [turni, published]);
 
-  // turni in cui a questa persona è stato chiesto un rimpiazzo:
-  // alert attivo sul turno + la persona è ASSENTE su quel turno
-  const myReplacementRequests = useMemo(() => {
+  // turni futuri in cui HO dato indisponibilità: qui posso SEMPRE segnalare un rimpiazzo,
+  // di mia iniziativa, senza aspettare il via del caposquadra.
+  const myAbsentTurni = useMemo(() => {
     if (!personId) return [];
     if (me?.permesso) return []; // chi è in permesso non deve cercare rimpiazzi
     return turni.filter((t) => {
-      if (isPast(t)) return false; // i turni passati non chiedono più rimpiazzi
-      const al = alerts[t.id];
-      if (!al?.active) return false;
+      if (isPast(t)) return false;
       const a = availability[t.id]?.[personId];
       const isAbsent = !a || (a.pre === "ASSENTE" && a.post === "ASSENTE");
       return isAbsent;
     });
-  }, [personId, turni, alerts, availability]);
+  }, [personId, turni, availability, me]);
+
+  // sottoinsieme urgente: turni dove il caposquadra ha attivato il sollecito "cerca rimpiazzo"
+  const myUrgentTurni = useMemo(
+    () => myAbsentTurni.filter((t) => alerts[t.id]?.active),
+    [myAbsentTurni, alerts]
+  );
 
   const saveMySub = (turnoId, field, value) => {
     const next = JSON.parse(JSON.stringify(alerts));
-    if (!next[turnoId]) next[turnoId] = { active: true, resolved: {} };
+    if (!next[turnoId]) next[turnoId] = { active: false, resolved: {} }; // segnalare NON attiva il sollecito del capo
     if (!next[turnoId].resolved) next[turnoId].resolved = {};
     const cur = next[turnoId].resolved[personId] || { sub: "", role: "soccorritore", squad: "" };
     cur[field] = value;
@@ -486,54 +490,62 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
       {me && (
         <>
-          {myReplacementRequests.length > 0 && (
-            <div style={S.alertBanner}>
-              <div style={{ fontSize: 22 }}>🔴</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
-                  Devi cercare un rimpiazzo!
+          {(() => {
+            // campi per segnalare un rimpiazzo su un turno
+            const SubRow = (t, urgent) => {
+              const r = alerts[t.id]?.resolved?.[personId] || { sub: "", role: "soccorritore", squad: "" };
+              const done = r.sub && r.sub.trim();
+              return (
+                <div key={t.id} style={S.alertTurno}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <b style={{ textTransform: "capitalize" }}>{t.label}</b>
+                    {done && <span style={S.doneTag}>✓ rimpiazzo trovato</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input style={{ ...S.slotSelect, flex: 1, minWidth: 140, maxWidth: "none" }}
+                      placeholder="Nome del sostituto" value={r.sub}
+                      onChange={(e) => saveMySub(t.id, "sub", e.target.value)} />
+                    <input style={{ ...S.slotSelect, width: 130, maxWidth: "none" }}
+                      placeholder="Sua squadra" value={r.squad}
+                      onChange={(e) => saveMySub(t.id, "squad", e.target.value)} />
+                    <select style={{ ...S.slotSelect, maxWidth: "none" }} value={r.role}
+                      onChange={(e) => saveMySub(t.id, "role", e.target.value)}>
+                      <option value="soccorritore">Soccorritore</option>
+                      <option value="autista">Autista</option>
+                      <option value="capo">Capoequipaggio</option>
+                    </select>
+                  </div>
                 </div>
-                <p style={{ ...S.helper, color: "#ffd9d4", margin: "0 0 12px" }}>
-                  Per {myReplacementRequests.length === 1 ? "questo turno siamo scoperti" : "questi turni siamo scoperti"} e tu hai dato indisponibilità. Trova qualcuno di un'altra squadra che ti sostituisca e segna qui chi hai trovato.
-                </p>
-                {myReplacementRequests.map((t) => {
-                  const r = alerts[t.id]?.resolved?.[personId] || { sub: "", role: "soccorritore", squad: "" };
-                  const done = r.sub && r.sub.trim();
-                  return (
-                    <div key={t.id} style={S.alertTurno}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                        <b style={{ textTransform: "capitalize" }}>{t.label}</b>
-                        {done && <span style={S.doneTag}>✓ rimpiazzo trovato</span>}
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          style={{ ...S.slotSelect, flex: 1, minWidth: 140, maxWidth: "none" }}
-                          placeholder="Nome del sostituto"
-                          value={r.sub}
-                          onChange={(e) => saveMySub(t.id, "sub", e.target.value)}
-                        />
-                        <input
-                          style={{ ...S.slotSelect, width: 130, maxWidth: "none" }}
-                          placeholder="Sua squadra"
-                          value={r.squad}
-                          onChange={(e) => saveMySub(t.id, "squad", e.target.value)}
-                        />
-                        <select
-                          style={{ ...S.slotSelect, maxWidth: "none" }}
-                          value={r.role}
-                          onChange={(e) => saveMySub(t.id, "role", e.target.value)}
-                        >
-                          <option value="soccorritore">Soccorritore</option>
-                          <option value="autista">Autista</option>
-                          <option value="capo">Capoequipaggio</option>
-                        </select>
-                      </div>
+              );
+            };
+            // i turni non urgenti = assente ma senza sollecito del capo
+            const nonUrgent = myAbsentTurni.filter((t) => !alerts[t.id]?.active);
+            return (
+              <>
+                {myUrgentTurni.length > 0 && (
+                  <div style={S.alertBanner}>
+                    <div style={{ fontSize: 22 }}>🔴</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Devi cercare un rimpiazzo!</div>
+                      <p style={{ ...S.helper, color: "#ffd9d4", margin: "0 0 12px" }}>
+                        Per {myUrgentTurni.length === 1 ? "questo turno siamo scoperti" : "questi turni siamo scoperti"} e tu hai dato indisponibilità. Trova qualcuno che ti sostituisca e segna qui chi hai trovato.
+                      </p>
+                      {myUrgentTurni.map((t) => SubRow(t, true))}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                  </div>
+                )}
+                {nonUrgent.length > 0 && (
+                  <div style={S.subOfferBox}>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>🔁 Hai trovato un rimpiazzo?</div>
+                    <p style={{ ...S.helper, margin: "0 0 12px" }}>
+                      Sei assente in {nonUrgent.length === 1 ? "questo turno" : "questi turni"}. Se hai già trovato qualcuno che ti sostituisce, segnalo qui: il caposquadra lo vedrà e potrà inserirlo. (Non sei obbligato: è per darti una mano.)
+                    </p>
+                    {nonUrgent.map((t) => SubRow(t, false))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
@@ -2701,6 +2713,7 @@ const S = {
     border: "1.5px solid var(--c-absent)", borderRadius: 16, padding: 18,
   },
   alertTurno: { background: "rgba(0,0,0,.22)", borderRadius: 10, padding: 12, marginBottom: 8 },
+  subOfferBox: { marginTop: 22, background: "rgba(91,155,240,.08)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
   doneTag: { fontSize: 11, fontWeight: 700, color: "var(--c-both)", background: "rgba(31,174,90,.16)", padding: "2px 8px", borderRadius: 12 },
   alertTag: { fontSize: 12, fontWeight: 700, color: "var(--c-absent)", background: "rgba(226,87,76,.14)", padding: "3px 10px", borderRadius: 12 },
 
