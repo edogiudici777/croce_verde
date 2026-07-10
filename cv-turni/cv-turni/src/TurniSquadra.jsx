@@ -2102,47 +2102,50 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
 
 /* ---------- toggle F3/D3 (notte divisa in due, turno "sfortunato") ---------- */
 function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
+  // le diurne non hanno il problema F3/D3: nessun controllo
+  if (turno.kind === "diurna") return null;
+
   const cur = assignments[turno.id]?.f3d3 || "";
-  const set = (val) => {
+  const isActive = cur.includes("D3") || cur.includes("F3");
+  const toggle = () => {
     const next = JSON.parse(JSON.stringify(assignments));
     if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
-    next[turno.id].f3d3 = next[turno.id].f3d3 === val ? "" : val;
+    next[turno.id].f3d3 = isActive ? "" : "F3/D3"; // un unico interruttore: divide la notte in F3 + D3
     saveAssign(next);
   };
-  const opts = turno.kind === "diurna" ? [["D3", "D3 (pomeriggio diviso)"]] : [["F3", "F3 (prima metà divisa)"], ["D3", "D3 (seconda metà divisa)"], ["F3/D3", "Entrambe"]];
 
   // hotness D3 su tutti i turni (chi ha fatto il D3 = 2° equipaggio post nei turni con D3 attivo)
   const { order, count, lastIdx } = useMemo(
     () => activityCounts(turni, assignments, extractD3),
     [turni, assignments]
   );
-  const isActive = cur.includes("D3");
   // chi è nel 2° equipaggio del dopo mezzanotte (quelli che faranno il D3)
   const crew2 = assignments[turno.id]?.post?.[1];
   const d3people = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
 
   return (
     <div style={S.f3d3Box}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={S.f3d3Label}>🌗 Notte divisa (turno sfortunato):</span>
-        {opts.map(([val, lbl]) => (
-          <button key={val} className="tap"
-            style={{ ...S.f3d3Btn, ...(cur === val ? S.f3d3BtnOn : {}) }}
-            onClick={() => set(val)}>{lbl}</button>
-        ))}
-        {cur && <span style={S.f3d3Active}>attivo: {cur}</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={S.f3d3Label}>🌗 Notte divisa in F3 / D3 (turno sfortunato):</span>
+        <button className="tap"
+          style={{ ...S.f3d3Btn, ...(isActive ? S.f3d3BtnOn : {}) }}
+          onClick={toggle}>
+          {isActive ? "✓ Attiva — disattiva" : "Attiva divisione F3/D3"}
+        </button>
       </div>
       {isActive && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 6 }}>
-            Fa il D3 il <b>2° equipaggio del dopo mezzanotte</b> (esce dopo le 3). Controlla che non tocchi sempre ai soliti:
+            La notte è divisa: il 1° equipaggio esce fino alle 3 (F3), il <b>2° equipaggio del dopo mezzanotte</b> esce dopo le 3 (D3). Controlla che il D3 non tocchi sempre ai soliti:
           </div>
           {d3people.length === 0 ? (
             <div style={S.helper}>Assegna prima il 2° equipaggio del dopo mezzanotte.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {d3people.map((pid) => {
-                const nm = pById[pid]?.name || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : pid);
+                const nm = pById[pid]?.name
+                  || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : null)
+                  || "— (da riassegnare) —";
                 const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
                 return (
                   <div key={pid} style={S.d3Row}>
