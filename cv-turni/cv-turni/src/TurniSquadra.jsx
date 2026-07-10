@@ -741,11 +741,12 @@ const REPORT_COLS = [
   { key: "equi2", label: "2° equi", hot: true },
   { key: "d3", label: "D3", hot: true },
   { key: "centralino", label: "Centralino", hot: true },
+  { key: "esuberi", label: "Esuberi" },
 ];
 const MESI_LABEL = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 
 function emptyRow() {
-  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0 };
+  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0, esuberi: 0 };
 }
 
 // id dei turni già presenti nello storico importato (per non ricontarli)
@@ -765,7 +766,7 @@ function crewIds(c) {
 // calcola i conteggi report dai turni ASSEGNATI IN APP e già passati (esclude lo storico importato).
 // Regola: presenza 1/turno; +1 per equipaggio nella colonna; D3 = 2° equipaggio post se f3d3 include D3.
 // Ritorna { [YYYY-MM]: { nturni, persone: { [cognome]: {counts} } } }
-function computeReportsFromApp(turni, assignments, pById) {
+function computeReportsFromApp(turni, assignments, pById, availability) {
   const cognomeOf = (id) => pById[id]?.cognome || pById[id]?.name?.split(" ")[0];
   const out = {};
   const ensureMonth = (mk) => { if (!out[mk]) out[mk] = { nturni: 0, persone: {} }; return out[mk]; };
@@ -779,9 +780,10 @@ function computeReportsFromApp(turni, assignments, pById) {
     const mk = monthOfTurnoId(t.id);
     ensureMonth(mk).nturni += 1;
     const present = new Set();
+    const assignedIds = new Set();
     const addCat = (id, cat) => {
       const cog = cognomeOf(id); if (!cog) return;
-      ensurePers(mk, cog)[cat] += 1; present.add(cog);
+      ensurePers(mk, cog)[cat] += 1; present.add(cog); assignedIds.add(id);
     };
     // pre: [0]=H24, [1]=gettone, eventuale "Stazionamento"
     (a.pre || []).forEach((c, i) => {
@@ -799,9 +801,17 @@ function computeReportsFromApp(turni, assignments, pById) {
     // centralino
     const centr = a.centralino;
     const centrIds = Array.isArray(centr) ? centr : [...(centr?.pre?.people || []), ...(centr?.post?.people || [])];
-    centrIds.filter(Boolean).forEach((id) => addCat(id, "centralino"));
+    centrIds.filter(Boolean).forEach((id) => { addCat(id, "centralino"); });
     // presenze
     present.forEach((cog) => { ensurePers(mk, cog).presenze += 1; });
+    // ESUBERI: disponibili (ENTRAMBE in una metà) ma non assegnati a nulla
+    const av = (availability && availability[t.id]) || {};
+    Object.keys(av).forEach((pid) => {
+      const dispo = av[pid] && (av[pid].pre === "ENTRAMBE" || av[pid].post === "ENTRAMBE");
+      if (dispo && !assignedIds.has(pid)) {
+        const cog = cognomeOf(pid); if (cog) ensurePers(mk, cog).esuberi += 1;
+      }
+    });
   });
   return out;
 }
@@ -829,10 +839,10 @@ function mergeReports(base, auto) {
   return out;
 }
 
-function ReportCapo({ turni, people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished }) {
+function ReportCapo({ turni, people, savePeople, reports, saveReports, imported, saveImported, galley, saveGalley, assignments, saveAssign, config, saveConfig, published, savePublished, availability }) {
   // mesi disponibili: quelli nei reports + il mese corrente
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
-  const autoReports = useMemo(() => computeReportsFromApp(turni, assignments, pById), [turni, assignments, pById]);
+  const autoReports = useMemo(() => computeReportsFromApp(turni, assignments, pById, availability), [turni, assignments, pById, availability]);
   const merged = useMemo(() => mergeReports(reports, autoReports), [reports, autoReports]);
   const nowMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
   const monthKeys = useMemo(() => {
@@ -846,43 +856,16 @@ function ReportCapo({ turni, people, savePeople, reports, saveReports, imported,
 
   const importStorico = () => {
     // 1) anagrafica squadra (già pronta nel seed, con cognome/ruoli/vincoli)
-    const newPeople = JSON.parse(JSON.stringify(seedStorico.people));
-    savePeople(newPeople);
-    const validIds = new Set(newPeople.map((p) => p.id));
-    const keepId = (id) => (!id || (typeof id === "string" && id.startsWith("ext:")) || validIds.has(id)) ? id : null;
+    savePeople(JSON.parse(JSON.stringify(seedStorico.people)));
 
-    // 2) turni: parto dallo storico del seed, poi rimetto SOPRA gli altri turni esistenti
-    //    ma ripulendo gli id orfani (persone che non esistono più dopo l'import).
-    const cleanCrew = (c) => ({
-      ...c,
-      autista: keepId(c.autista),
-      capo: keepId(c.capo),
-      soccorritori: (c.soccorritori || []).map(keepId),
-    });
-    const cleanAssign = (a) => {
-      const out = { ...a };
-      ["pre", "post"].forEach((h) => { if (Array.isArray(out[h])) out[h] = out[h].map(cleanCrew); });
-      if (out.centralino && !Array.isArray(out.centralino)) {
-        ["pre", "post"].forEach((h) => {
-          if (out.centralino[h]?.people) out.centralino[h] = { ...out.centralino[h], people: out.centralino[h].people.map(keepId).filter(Boolean) };
-        });
-      } else if (Array.isArray(out.centralino)) {
-        out.centralino = out.centralino.map(keepId).filter(Boolean);
-      }
-      return out;
-    };
-    const mergedAssign = {};
-    Object.entries(assignments || {}).forEach(([id, a]) => { mergedAssign[id] = cleanAssign(a); });
-    Object.entries(seedStorico.assignments).forEach(([id, a]) => { mergedAssign[id] = a; }); // storico dai fogli ha la precedenza
-    saveAssign(mergedAssign);
-
+    // 2) turni storici archiviati: assegnazioni, config, cambusa, pubblicati
+    saveAssign({ ...assignments, ...seedStorico.assignments });
     saveConfig({ ...config, ...seedStorico.config });
     savePublished({ ...published, ...seedStorico.published });
 
-    // 3) cambusa: ripulisco anche qui gli id orfani, poi metto lo storico
-    const cleanGalley = {};
-    Object.entries(galley || {}).forEach(([id, ids]) => { cleanGalley[id] = (ids || []).map(keepId).filter(Boolean); });
-    saveGalley({ ...cleanGalley, ...seedStorico.galley });
+    // 3) cambusa: le date storiche sono già dentro i turni (galley per turnoId).
+    //    Non serve duplicarle: galleyCounts le conta dai turni stessi.
+    saveGalley({ ...galley, ...seedStorico.galley });
 
     // 4) report mensili
     saveReports({ ...reports, ...seedStorico.reports });
@@ -1142,7 +1125,8 @@ function downloadSheetPDF(turno, sheet, message) {
   const noteRows = [];
   if (sheet.rimpiazzi && sheet.rimpiazzi.length) noteRows.push(`<div class="nrimp"><u>Rimpiazzi</u>: ${sheet.rimpiazzi.map(esc).join(", ")}</div>`);
   if (sheet.permessi && sheet.permessi.length) noteRows.push(`<div><u>Permessi</u>: ${sheet.permessi.map(esc).join(", ")}</div>`);
-  if (assentiTutte.length) noteRows.push(`<div><u>Assenze giustificate/Esuberi</u>: ${assentiTutte.map(esc).join(", ")}</div>`);
+  if (assentiTutte.length) noteRows.push(`<div><u>Assenze giustificate</u>: ${assentiTutte.map(esc).join(", ")}</div>`);
+  if (sheet.esuberi && sheet.esuberi.length) noteRows.push(`<div><u>Esuberi</u>: ${sheet.esuberi.map(esc).join(", ")}</div>`);
   const noteHtml = noteRows.length ? `<div class="note"><div class="notet">Note:</div>${noteRows.join("")}</div>` : "";
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
@@ -1638,6 +1622,7 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       lines.push("");
     }
     if (sheet.permessi && sheet.permessi.length) { lines.push(`Permessi: ${sheet.permessi.join(", ")}`); }
+    if (sheet.esuberi && sheet.esuberi.length) { lines.push(`Esuberi: ${sheet.esuberi.join(", ")}`); }
     if (msg && msg.trim()) { lines.push(""); lines.push(msg.trim()); }
     return lines.join("\n");
   };
@@ -1936,7 +1921,29 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
     });
   }));
 
-  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi };
+  // ESUBERI: chi ha dato disponibilità (almeno una metà ENTRAMBE) ma NON è in equipaggio né al centralino
+  const assignedIds = new Set();
+  ["pre", "post"].forEach((half) => {
+    (assignments[turno.id]?.[half] || []).forEach((c) => {
+      [c.autista, c.capo, ...(c.soccorritori || [])].forEach((id) => { if (id) assignedIds.add(id); });
+    });
+  });
+  // centralino (entrambi i formati)
+  const cc = assignments[turno.id]?.centralino;
+  if (Array.isArray(cc)) cc.forEach((id) => id && assignedIds.add(id));
+  else if (cc) ["pre", "post"].forEach((h) => (cc[h]?.people || []).forEach((id) => id && assignedIds.add(id)));
+
+  const esuberi = [];
+  people.forEach((p) => {
+    if (p.permesso) return;
+    const a = availability[turno.id]?.[p.id];
+    if (!a) return; // chi non ha risposto è già in notResponded
+    const disponibile = a.pre === "ENTRAMBE" || a.post === "ENTRAMBE";
+    if (disponibile && !assignedIds.has(p.id)) esuberi.push(p.name);
+  });
+  esuberi.sort((x, y) => x.localeCompare(y));
+
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -2017,6 +2024,13 @@ function SheetView({ turno, sheet, message }) {
               ) : null
             )}
           </div>
+        </div>
+      )}
+
+      {sheet.esuberi && sheet.esuberi.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={S.sheetHalf}>🔄 Esuberi <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-soft)" }}>(disponibili non impiegati)</span></div>
+          <div style={S.sheetCentralino}>{sheet.esuberi.join(" · ")}</div>
         </div>
       )}
 
@@ -2116,9 +2130,7 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {d3people.map((pid) => {
-                const nm = pById[pid]?.name
-                  || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : null)
-                  || "— (da riassegnare) —";
+                const nm = pById[pid]?.name || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : pid);
                 const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
                 return (
                   <div key={pid} style={S.d3Row}>
@@ -2439,12 +2451,12 @@ function RolePill({ on, onClick, children }) {
 /* ===========================================================================
    CLASSIFICHE
    =========================================================================== */
-function Classifiche({ turni, people, assignments, galley, reports }) {
+function Classifiche({ turni, people, assignments, galley, reports, availability }) {
   const stats = useMemo(() => {
     const cognomeOf = (p) => p.cognome || p.name.trim().split(" ")[0];
     const pById = Object.fromEntries(people.map((p) => [p.id, p]));
     // report fusi: base storica/manuale + auto-calcolo dai turni assegnati in app
-    const auto = computeReportsFromApp(turni, assignments, pById);
+    const auto = computeReportsFromApp(turni, assignments, pById, availability);
     const mergedR = mergeReports(reports || {}, auto);
     const byCognome = {};
     people.forEach((p) => {
