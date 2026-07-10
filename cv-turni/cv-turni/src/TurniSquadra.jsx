@@ -537,16 +537,16 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
-          {me.permesso ? (
+          {me.permesso && (
             <div style={{ ...S.bigCard, marginTop: 8, borderColor: "var(--c-post)" }}>
               <h2 style={{ ...S.h2, marginBottom: 6 }}>Sei in permesso 🌴</h2>
               <p style={S.helper}>
-                Il caposquadra ti ha segnato in permesso per questo periodo, quindi non devi inserire disponibilità. Se è un errore, faglielo sapere.
+                Non sei obbligato a dare disponibilità e non ti verrà chiesto di cercare un rimpiazzo. Ma se in qualche turno puoi scendere, segnalo pure qui sotto: se servi, il caposquadra può metterti in equipaggio.
               </p>
             </div>
-          ) : (
+          )}
           <>
-          <h2 style={{ ...S.h2, marginLeft: 4, marginBottom: 4 }}>Segna i turni del mese</h2>
+          <h2 style={{ ...S.h2, marginLeft: 4, marginBottom: 4 }}>{me.permesso ? "Se puoi, segna i turni" : "Segna i turni del mese"}</h2>
           <p style={{ ...S.helper, marginLeft: 4, marginTop: 0, marginBottom: 18 }}>
             Per ogni notte dicci se puoi <b>prima di mezzanotte</b>, <b>dopo</b>, tutto, o se sei assente. I bottoni veloci impostano tutto in un tocco.
           </p>
@@ -636,7 +636,6 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             Le tue scelte si salvano da sole. Puoi tornare quando vuoi a modificarle.
           </p>
           </>
-          )}
         </>
       )}
     </main>
@@ -1935,9 +1934,8 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
 
   const esuberi = [];
   people.forEach((p) => {
-    if (p.permesso) return;
     const a = availability[turno.id]?.[p.id];
-    if (!a) return; // chi non ha risposto è già in notResponded
+    if (!a) return; // chi non ha risposto è già in notResponded (i permessi che non rispondono restano fuori)
     const disponibile = a.pre === "ENTRAMBE" || a.post === "ENTRAMBE";
     if (disponibile && !assignedIds.has(p.id)) esuberi.push(p.name);
   });
@@ -2187,9 +2185,8 @@ function AbsentDetails({ turno, people, availability }) {
 function GalleyEditor({ turno, turni, people, pById, availability, galley, saveGalley }) {
   const cur = galley[turno.id] || [];
 
-  // presenti a questo turno (esclusi permessi)
+  // presenti a questo turno (chi ha dato disponibilità, permessi inclusi se scendono)
   const present = useMemo(() => people.filter((p) => {
-    if (p.permesso) return false;
     const a = availability[turno.id]?.[p.id];
     return a && (a.pre === "ENTRAMBE" || a.post === "ENTRAMBE");
   }), [people, availability, turno.id]);
