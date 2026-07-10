@@ -1509,6 +1509,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                                 availability={availability}
                                 assignments={assignments}
                                 saveAssign={saveAssign}
+                                alerts={alerts}
                               />
                             ))}
                           </div>
@@ -1724,10 +1725,18 @@ function CoverageBadge({ stats }) {
 }
 
 /* ---------- editor singolo equipaggio ---------- */
-function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability, assignments, saveAssign }) {
+function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability, assignments, saveAssign, alerts }) {
   const c = crew || { autista: null, capo: null, soccorritori: [], size: 4 };
   const size = c.size || (c.soccorritori?.length === 1 ? 3 : 4); // 3 o 4
   const nSocc = size - 2; // 1 o 2 soccorritori
+
+  // rimpiazzi segnalati dagli assenti per QUESTO turno (nome, squadra, ruolo, chi l'ha proposto)
+  const subsSuggeriti = useMemo(() => {
+    const resolved = alerts?.[turno.id]?.resolved || {};
+    return Object.entries(resolved)
+      .filter(([, r]) => r.sub && r.sub.trim())
+      .map(([pid, r]) => ({ name: r.sub.trim(), squad: (r.squad || "").trim(), role: r.role || "soccorritore", from: pById[pid]?.name || "" }));
+  }, [alerts, turno.id, pById]);
 
   const setSlot = (role, idx, value) => {
     const next = JSON.parse(JSON.stringify(assignments));
@@ -1824,12 +1833,14 @@ function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability,
         label="Autista" icon="🚑" role="autista"
         value={c.autista}
         options={optionsFor("autista", c.autista)}
+        subsSuggeriti={subsSuggeriti}
         onChange={(v) => setSlot("autista", null, v)}
       />
       <SlotSelect
         label="Capoequipaggio" icon="⭐" role="capo"
         value={c.capo}
         options={optionsFor("capo", c.capo)}
+        subsSuggeriti={subsSuggeriti}
         onChange={(v) => setSlot("capo", null, v)}
       />
       {Array.from({ length: nSocc }).map((_, i) => (
@@ -1838,6 +1849,7 @@ function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability,
           label={nSocc === 1 ? "Soccorritore" : `Soccorritore ${i + 1}`} icon="🧑‍⚕️" role="soccorritore"
           value={c.soccorritori?.[i] || null}
           options={optionsFor("soccorritore", c.soccorritori?.[i])}
+          subsSuggeriti={subsSuggeriti}
           onChange={(v) => setSlot("soccorritori", i, v)}
           warnDoubleRole={(pid) => {
             const p = pById[pid];
@@ -2053,12 +2065,13 @@ function SheetView({ turno, sheet, message }) {
   );
 }
 
-function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
+function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, subsSuggeriti }) {
   const ext = isExt(value);
   const showWarn = !ext && warnDoubleRole && value && warnDoubleRole(value);
+  const subs = subsSuggeriti || [];
 
   const addExternal = () => {
-    const name = window.prompt("Nome del rimpiazzo esterno:");
+    const name = window.prompt("Nome del rimpiazzo esterno (fuori dalle segnalazioni):");
     if (!name) return;
     const squad = window.prompt("Da quale squadra arriva? (facoltativo)") || "";
     onChange(`ext:${name.trim()}|${squad.trim()}`);
@@ -2087,13 +2100,32 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole }) {
         <select
           style={S.slotSelect}
           value={value || ""}
-          onChange={(e) => { if (e.target.value === "__ext__") addExternal(); else onChange(e.target.value); }}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__ext__") { addExternal(); return; }
+            if (v.startsWith("__sub__")) {
+              const idx = Number(v.slice("__sub__".length));
+              const s = subs[idx];
+              if (s) onChange(`ext:${s.name}|${s.squad}`);
+              return;
+            }
+            onChange(v);
+          }}
         >
           <option value="">— vuoto —</option>
           {options.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
-          <option value="__ext__">+ Rimpiazzo da altra squadra…</option>
+          {subs.length > 0 && (
+            <optgroup label="🔁 Rimpiazzi segnalati">
+              {subs.map((s, i) => (
+                <option key={i} value={`__sub__${i}`}>
+                  {s.name}{s.squad ? ` · ${s.squad}` : ""}{s.from ? ` (per ${s.from})` : ""}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <option value="__ext__">+ Aggiungi manualmente (fuori segnalazioni)…</option>
         </select>
       </div>
     </div>
