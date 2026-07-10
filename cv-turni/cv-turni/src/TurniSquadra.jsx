@@ -490,7 +490,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             <div key={t.id} style={{ marginBottom: 14 }}>
               <SheetView
                 turno={t}
-                sheet={buildSheet(t, people, assignments, availability, crewsFor, pById)}
+                sheet={buildSheet(t, people, assignments, availability, crewsFor, pById, alerts)}
                 message={published[t.id]?.message}
               />
             </div>
@@ -1579,6 +1579,7 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                     galley={galley}
                     published={published}
                     savePublished={savePublished}
+                    alerts={alerts}
                   />
                 </div>
               )}
@@ -1591,12 +1592,12 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
 }
 
 /* ---------- blocco pubblicazione + PDF ---------- */
-function PublishBlock({ turno, people, pById, availability, assignments, crewsFor, galley, published, savePublished }) {
+function PublishBlock({ turno, people, pById, availability, assignments, crewsFor, galley, published, savePublished, alerts }) {
   const pub = published[turno.id];
   const [msg, setMsg] = useState(pub?.message || "");
   const sheet = useMemo(
-    () => buildSheet(turno, people, assignments, availability, crewsFor, pById),
-    [turno, people, assignments, availability, crewsFor, pById]
+    () => buildSheet(turno, people, assignments, availability, crewsFor, pById, alerts),
+    [turno, people, assignments, availability, crewsFor, pById, alerts]
   );
   // nomi cambusa per questo turno
   const cambusa = useMemo(
@@ -1861,23 +1862,23 @@ function CrewEditor({ turno, half, crewIndex, crew, people, pById, availability,
   );
 }
 
-// codifica rimpiazzo esterno come stringa "ext:Nome|Squadra"
+// codifica esterno come stringa "ext:Nome|Squadra|Nota" (nota facoltativa)
 function isExt(v) { return typeof v === "string" && v.startsWith("ext:"); }
 function parseExt(v) {
-  const [name, squad] = v.slice(4).split("|");
-  return { name: name || "Esterno", squad: squad || "" };
+  const [name, squad, note] = v.slice(4).split("|");
+  return { name: name || "Esterno", squad: squad || "", note: note || "" };
 }
 
-// risolve il nome di uno slot (persona interna o rimpiazzo esterno)
+// risolve il nome di uno slot (persona interna o esterno)
 function slotName(v, pById) {
   if (!v) return null;
-  if (isExt(v)) { const e = parseExt(v); return { name: e.name, ext: true, squad: e.squad }; }
+  if (isExt(v)) { const e = parseExt(v); return { name: e.name, ext: true, squad: e.squad, note: e.note }; }
   const p = pById[v];
   return p ? { name: p.name, ext: false } : null;
 }
 
 // costruisce i dati del foglio per un turno: equipaggi + assenti raggruppati per motivo + non risposto
-function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
+function buildSheet(turno, people, assignments, availability, crewsFor, pById, alerts) {
   const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
     // numero equipaggi: il massimo tra quelli previsti (config) e quelli realmente salvati nei dati
@@ -1938,11 +1939,26 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById) {
   // persone in permesso (per la sezione Note)
   const permessi = people.filter((p) => p.permesso).map((p) => p.name).sort((a, b) => a.localeCompare(b));
 
-  // rimpiazzi esterni usati negli equipaggi (nome + eventuale squadra)
+  // mappa nome-rimpiazzo -> chi l'ha segnalato (dai rimpiazzi proposti dagli assenti)
+  const resolved = alerts?.[turno.id]?.resolved || {};
+  const proposerByName = {};
+  Object.entries(resolved).forEach(([pid, r]) => {
+    if (r.sub && r.sub.trim()) proposerByName[r.sub.trim().toLowerCase()] = pById[pid]?.name || "";
+  });
+
+  // esterni negli equipaggi: se corrispondono a un rimpiazzo segnalato -> "(per Tizio)",
+  // altrimenti sono esterni aggiunti a mano, con eventuale nota.
   const rimpiazzi = [];
   halves.forEach((h) => h.crews.forEach((c) => {
     [c.autista, c.capo, ...c.soccorritori].forEach((s) => {
-      if (s && s.ext) rimpiazzi.push(s.name + (s.squad ? ` (${s.squad})` : ""));
+      if (s && s.ext) {
+        const proposer = proposerByName[s.name.trim().toLowerCase()];
+        let extra = "";
+        if (proposer) extra = ` (per ${proposer})`;
+        else if (s.note) extra = ` (${s.note})`;
+        else if (s.squad) extra = ` (${s.squad})`;
+        rimpiazzi.push(s.name + extra);
+      }
     });
   }));
 
@@ -2071,10 +2087,11 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, sub
   const subs = subsSuggeriti || [];
 
   const addExternal = () => {
-    const name = window.prompt("Nome del rimpiazzo esterno (fuori dalle segnalazioni):");
+    const name = window.prompt("Nome dell'esterno (non rimpiazzo):");
     if (!name) return;
     const squad = window.prompt("Da quale squadra arriva? (facoltativo)") || "";
-    onChange(`ext:${name.trim()}|${squad.trim()}`);
+    const note = window.prompt("Nota (facoltativa, es. 'in prova', 'solo prima parte'):") || "";
+    onChange(`ext:${name.trim()}|${squad.trim()}|${note.trim()}`);
   };
 
   if (ext) {
@@ -2083,8 +2100,8 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, sub
       <div style={S.slot}>
         <span style={S.slotLabel}>{icon} {label}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, justifyContent: "flex-end" }}>
-          <span style={S.extChip} title={e.squad ? `da ${e.squad}` : "rimpiazzo esterno"}>
-            🔁 {e.name}{e.squad ? ` · ${e.squad}` : ""}
+          <span style={S.extChip} title={e.note || (e.squad ? `da ${e.squad}` : "esterno")}>
+            🔁 {e.name}{e.squad ? ` · ${e.squad}` : ""}{e.note ? ` · ${e.note}` : ""}
           </span>
           <button style={S.extRemove} onClick={() => onChange("")} title="Rimuovi">✕</button>
         </div>
@@ -2125,7 +2142,7 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, sub
               ))}
             </optgroup>
           )}
-          <option value="__ext__">+ Aggiungi manualmente (fuori segnalazioni)…</option>
+          <option value="__ext__">+ Esterno (non rimpiazzo) con nota…</option>
         </select>
       </div>
     </div>
