@@ -1095,86 +1095,91 @@ function downloadSheetPDF(turno, sheet, message) {
   const tipo = turno.kind === "diurna" ? "DIURNA" : "NOTTURNA";
   const titolo = `${tipo} ${esc(turno.label.toUpperCase())} ${turno.date.getFullYear()}`;
 
-  // una tabella-equipaggio in stile modello (header verde + riga orari + AV/CS/SOCC)
-  const crewTable = (c) => {
-    const orario = `In sede ore <b>${esc(c.inSede || "—")}</b> &nbsp; ${esc(c.fascia)}`;
+  // colori per posizione equipaggio (robusti: non dipendono dal nome)
+  const CREW_COLORS = ["#1fae5a", "#0e9488", "#5b6bd0", "#7c5cf0", "#d97706", "#be185d"];
+
+  const crewCard = (c, idx) => {
+    const col = CREW_COLORS[idx % CREW_COLORS.length];
     const cell = (s) =>
       s
-        ? `<span class="${s.ext ? "rimp" : "nom"}">${esc(s.name)}</span>`
-        : `<span class="empty">— scoperto —</span>`;
-    const soccRows = c.soccorritori.map((s) => `<tr><td class="rl">SOCC</td><td>${cell(s)}</td></tr>`).join("");
+        ? `<td class="val ${s.ext ? "rimp" : ""}">${esc(s.name)}</td>`
+        : `<td class="val empty">— scoperto —</td>`;
+    const soccRows = c.soccorritori.map((s) => `<tr><td class="rl">SOCC</td>${cell(s)}</tr>`).join("");
+    const orario = `${c.inSede ? `in sede ${esc(c.inSede)} · ` : ""}${esc(c.fascia)}`;
     return `
-      <div class="crew">
-        <div class="crewname">${esc(c.name)}</div>
-        <table class="ct">
-          <tr class="hdr"><td colspan="2">${orario}</td></tr>
-          <tr><td class="rl">AV</td><td>${cell(c.autista)}</td></tr>
-          <tr><td class="rl">CS</td><td>${cell(c.capo)}</td></tr>
+      <div class="card" style="border-color:${col}">
+        <div class="cardhead" style="background:${col}"><span class="cn">${esc(c.name)}</span></div>
+        <div class="ct">🕐 ${orario}</div>
+        <table>
+          <tr><td class="rl">AV</td>${cell(c.autista)}</tr>
+          <tr><td class="rl">CS</td>${cell(c.capo)}</tr>
           ${soccRows}
         </table>
       </div>`;
   };
 
-  // equipaggi a coppie (due per riga, come il modello)
+  // equipaggi a coppie (due per riga), colore per posizione
   const allCrews = [];
   sheet.halves.forEach((h) => h.crews.forEach((c) => allCrews.push(c)));
   let crewsHtml = "";
   for (let i = 0; i < allCrews.length; i += 2) {
-    crewsHtml += `<div class="row2">${crewTable(allCrews[i])}${allCrews[i + 1] ? crewTable(allCrews[i + 1]) : "<div class='crew empty-slot'></div>"}</div>`;
+    const left = crewCard(allCrews[i], i);
+    const right = allCrews[i + 1] ? crewCard(allCrews[i + 1], i + 1) : "<div class='card empty'></div>";
+    crewsHtml += `<div class="row2">${left}${right}</div>`;
   }
 
-  // centralino per metà
+  // centralino come chip
   const centralHtml = (sheet.centralino || [])
-    .map((c) => `<div class="cline"><b>CENTRALINO ${esc(c.orario || c.label)}:</b> ${c.people.map((s) => esc(s.name)).join("-")}</div>`)
+    .map((c) => `<span class="chip">☎️ <b>${esc(c.orario || c.label)}</b> · ${c.people.map((s) => esc(s.name)).join("-")}</span>`)
     .join("");
 
   // cambusa
   const cambusaHtml = sheet.cambusa && sheet.cambusa.length
-    ? `<div class="cambusa">🍕 <b>CAMBUSA:</b> ${sheet.cambusa.map(esc).join("-")}</div>`
+    ? `<div><span class="cambusa">🍕 <b>Cambusa:</b> ${sheet.cambusa.map(esc).join("-")}</span></div>`
     : "";
 
   // note in fondo
   const assentiTutte = MOTIVI_ORDER.flatMap((k) => sheet.byReason[k]).sort((a, b) => a.localeCompare(b));
   const noteRows = [];
-  if (sheet.rimpiazzi && sheet.rimpiazzi.length) noteRows.push(`<div class="nrimp"><u>Rimpiazzi</u>: ${sheet.rimpiazzi.map(esc).join(", ")}</div>`);
-  if (sheet.permessi && sheet.permessi.length) noteRows.push(`<div><u>Permessi</u>: ${sheet.permessi.map(esc).join(", ")}</div>`);
-  if (assentiTutte.length) noteRows.push(`<div><u>Assenze giustificate</u>: ${assentiTutte.map(esc).join(", ")}</div>`);
-  if (sheet.esuberi && sheet.esuberi.length) noteRows.push(`<div><u>Esuberi</u>: ${sheet.esuberi.map(esc).join(", ")}</div>`);
-  const noteHtml = noteRows.length ? `<div class="note"><div class="notet">Note:</div>${noteRows.join("")}</div>` : "";
+  if (sheet.rimpiazzi && sheet.rimpiazzi.length) noteRows.push(`<div class="nr"><b>Rimpiazzi:</b> ${sheet.rimpiazzi.map(esc).join(", ")}</div>`);
+  if (sheet.permessi && sheet.permessi.length) noteRows.push(`<div><b>Permessi:</b> ${sheet.permessi.map(esc).join(", ")}</div>`);
+  if (assentiTutte.length) noteRows.push(`<div><b>Assenze giustificate:</b> ${assentiTutte.map(esc).join(", ")}</div>`);
+  if (sheet.esuberi && sheet.esuberi.length) noteRows.push(`<div><b>Esuberi:</b> ${sheet.esuberi.map(esc).join(", ")}</div>`);
+  const noteHtml = noteRows.length ? `<div class="note">${noteRows.join("")}</div>` : "";
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8">
   <title>${titolo}</title>
   <style>
-    @page { margin: 16mm; }
-    * { box-sizing: border-box; }
-    body { font-family: Georgia, 'Times New Roman', serif; color:#1a1a1a; margin:0; }
-    h1 { text-align:center; color:#2e7d32; font-size:26px; font-weight:700; margin:0 0 26px; letter-spacing:.5px; }
-    .row2 { display:flex; gap:26px; margin-bottom:22px; page-break-inside:avoid; }
-    .crew { flex:1; }
-    .empty-slot { border:none; }
-    .crewname { text-align:center; font-weight:700; font-size:18px; margin-bottom:6px; }
-    table.ct { width:100%; border-collapse:collapse; }
-    table.ct td { border:1px solid #6f6f6f; padding:7px 10px; font-size:14px; }
-    table.ct td.rl { width:64px; font-weight:400; background:#fff; }
-    tr.hdr td { background:#8bc48f; font-weight:400; font-size:12px; border:1px solid #6f6f6f; }
-    .nom { color:#000; }
-    .rimp { color:#c62828; font-weight:600; }
-    .empty { color:#c62828; }
-    td .nom, td .rimp { display:inline-block; text-align:center; width:100%; }
-    table.ct td:nth-child(2) { text-align:center; color:#c62828; }
-    table.ct tr:nth-child(2) td:nth-child(2) { color:#c62828; }
-    .cline { font-size:14px; margin:8px 0; }
-    .cambusa { font-size:14px; margin:16px 0 8px; }
-    .note { margin-top:22px; font-size:13px; line-height:1.6; }
-    .notet { margin-bottom:2px; }
-    .nrimp { color:#c62828; }
-    .msg { margin-top:16px; padding:12px 14px; background:#eef8f1; border-left:4px solid #2e7d32; font-style:italic; font-size:14px; }
-    .foot { margin-top:22px; font-size:10px; color:#9aa7b3; }
-    hr { border:none; border-top:1px solid #ccc; margin:20px 0; }
+    @page { margin: 13mm; }
+    * { box-sizing: border-box; font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
+    body { color:#1c2b22; margin:0; }
+    .top { text-align:center; margin-bottom:18px; }
+    .top .b { display:inline-block; background:#1fae5a; color:#fff; font-size:10px; letter-spacing:2px; padding:3px 12px; border-radius:20px; text-transform:uppercase; margin-bottom:8px; }
+    .top h1 { font-size:21px; margin:0; color:#15833f; letter-spacing:.3px; }
+    .row2 { display:flex; gap:14px; margin-bottom:14px; page-break-inside:avoid; }
+    .card { flex:1; border:2px solid; border-radius:12px; overflow:hidden; }
+    .card.empty { border:none; }
+    .cardhead { color:#fff; padding:7px 14px; }
+    .cn { font-weight:800; font-size:15px; letter-spacing:.5px; }
+    .ct { font-size:11px; color:#66756b; padding:6px 14px 2px; }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:6px 14px; font-size:13px; }
+    td.rl { width:54px; color:#99a4ad; font-weight:800; font-size:10.5px; }
+    td.val { font-weight:600; }
+    td.rimp { color:#e2574c; }
+    td.empty { color:#e2574c; font-weight:500; }
+    tr:not(:last-child) td { border-bottom:1px solid #f0f3f1; }
+    .sect { margin:16px 0 8px; font-weight:800; color:#15833f; font-size:13px; }
+    .chip { display:inline-block; background:#eef8f1; border:1px solid #cfe8d9; border-radius:20px; padding:5px 12px; font-size:12px; margin:0 6px 6px 0; }
+    .cambusa { display:inline-block; margin:12px 0; font-size:14px; background:#fdf6e3; padding:10px 14px; border-radius:10px; }
+    .note { margin-top:14px; font-size:12px; line-height:1.7; background:#f7faf8; padding:12px 16px; border-radius:10px; }
+    .note .nr { color:#e2574c; }
+    .msg { margin-top:14px; padding:12px 14px; background:#eef8f1; border-left:4px solid #1fae5a; font-style:italic; font-size:13.5px; border-radius:8px; }
+    .foot { margin-top:18px; font-size:10px; color:#9aa7b3; text-align:center; }
   </style></head><body>
-    <h1>${titolo}</h1>
+    <div class="top"><div class="b">Croceverde APM · Milano</div><h1>${titolo}</h1></div>
     ${crewsHtml}
-    ${centralHtml ? `<hr>${centralHtml}` : ""}
+    ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
     ${noteHtml}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
