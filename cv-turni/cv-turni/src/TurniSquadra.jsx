@@ -1100,7 +1100,7 @@ function downloadSheetPDF(turno, sheet, message) {
     const orario = `In sede ore <b>${esc(c.inSede || "—")}</b> &nbsp; ${esc(c.fascia)}`;
     const cell = (s) =>
       s
-        ? `<span class="${s.ext ? "rimp" : "nom"}">${esc(s.name)}${s.ext ? " (rimp.)" : ""}</span>`
+        ? `<span class="${s.ext ? "rimp" : "nom"}">${esc(s.name)}</span>`
         : `<span class="empty">— scoperto —</span>`;
     const soccRows = c.soccorritori.map((s) => `<tr><td class="rl">SOCC</td><td>${cell(s)}</td></tr>`).join("");
     return `
