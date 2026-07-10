@@ -1095,8 +1095,24 @@ function downloadSheetPDF(turno, sheet, message) {
   const tipo = turno.kind === "diurna" ? "DIURNA" : "NOTTURNA";
   const titolo = `${tipo} ${esc(turno.label.toUpperCase())} ${turno.date.getFullYear()}`;
 
+  // logo Croce Verde ricostruito in SVG (nitido, leggero, senza file esterni)
+  const LOGO = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="72" height="72">
+    <defs><path id="cvtp" d="M 100,100 m -80,0 a 80,80 0 1,1 160,0"/><path id="cvbt" d="M 100,100 m 80,0 a 80,80 0 0,1 -160,0"/></defs>
+    <circle cx="100" cy="100" r="98" fill="#1a9e54"/><circle cx="100" cy="100" r="74" fill="#fff"/>
+    <text fill="#fff" font-size="12" font-weight="700" letter-spacing="1" font-family="Arial"><textPath href="#cvtp" startOffset="50%" text-anchor="middle">CROCE VERDE · ASSISTENZA PUBBLICA MILANESE</textPath></text>
+    <text fill="#fff" font-size="12" font-weight="700" letter-spacing="1" font-family="Arial"><textPath href="#cvbt" startOffset="50%" text-anchor="middle">· VOLONTARI DAL 1899 ·</textPath></text>
+    <rect x="80" y="34" width="40" height="132" fill="#1a9e54" stroke="#f0b429" stroke-width="2.5"/>
+    <rect x="34" y="80" width="132" height="40" fill="#1a9e54" stroke="#f0b429" stroke-width="2.5"/>
+    <path d="M 82,84 h 36 v 24 q 0,14 -18,20 q -18,-6 -18,-20 z" fill="#fff" stroke="#f0b429" stroke-width="2"/>
+    <g fill="#e2231a"><rect x="95" y="88" width="10" height="30"/><rect x="86" y="97" width="28" height="10"/></g>
+    <text x="60" y="66" fill="#f0b429" font-size="8" font-weight="800" font-family="Arial" transform="rotate(-33 60 66)">AMA</text>
+    <text x="126" y="60" fill="#f0b429" font-size="8" font-weight="800" font-family="Arial" transform="rotate(31 126 60)">LAVORA</text>
+    <text x="52" y="150" fill="#f0b429" font-size="8" font-weight="800" font-family="Arial" transform="rotate(40 52 150)">SPERA</text>
+    <text x="128" y="150" fill="#f0b429" font-size="8" font-weight="800" font-family="Arial" transform="rotate(-33 128 150)">SALVA</text>
+  </svg>`;
+
   // colori per posizione equipaggio (robusti: non dipendono dal nome)
-  const CREW_COLORS = ["#1fae5a", "#0e9488", "#5b6bd0", "#7c5cf0", "#d97706", "#be185d"];
+  const CREW_COLORS = ["#1a9e54", "#0e9488", "#5b6bd0", "#7c5cf0", "#d97706", "#be185d"];
 
   const crewCard = (c, idx) => {
     const col = CREW_COLORS[idx % CREW_COLORS.length];
@@ -1153,13 +1169,15 @@ function downloadSheetPDF(turno, sheet, message) {
     @page { margin: 13mm; }
     * { box-sizing: border-box; font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
     body { color:#1c2b22; margin:0; }
-    .top { text-align:center; margin-bottom:18px; }
-    .top .b { display:inline-block; background:#1fae5a; color:#fff; font-size:10px; letter-spacing:2px; padding:3px 12px; border-radius:20px; text-transform:uppercase; margin-bottom:8px; }
-    .top h1 { font-size:21px; margin:0; color:#15833f; letter-spacing:.3px; }
+    .top { display:flex; align-items:center; gap:16px; padding-bottom:12px; border-bottom:3px solid #1a9e54; margin-bottom:16px; }
+    .top .tt { flex:1; }
+    .top .b { display:inline-block; background:#1a9e54; color:#fff; font-size:10px; letter-spacing:2px; padding:3px 12px; border-radius:20px; text-transform:uppercase; margin-bottom:6px; }
+    .top h1 { font-size:22px; margin:0; color:#15833f; letter-spacing:.3px; }
+    .top .sm { font-size:11px; color:#8a9a90; margin-top:3px; }
     .row2 { display:flex; gap:14px; margin-bottom:14px; page-break-inside:avoid; }
-    .card { flex:1; border:2px solid; border-radius:12px; overflow:hidden; }
+    .card { flex:1; border:2px solid; border-radius:14px; overflow:hidden; }
     .card.empty { border:none; }
-    .cardhead { color:#fff; padding:7px 14px; }
+    .cardhead { color:#fff; padding:8px 14px; }
     .cn { font-weight:800; font-size:15px; letter-spacing:.5px; }
     .ct { font-size:11px; color:#66756b; padding:6px 14px 2px; }
     table { width:100%; border-collapse:collapse; }
@@ -1171,13 +1189,13 @@ function downloadSheetPDF(turno, sheet, message) {
     tr:not(:last-child) td { border-bottom:1px solid #f0f3f1; }
     .sect { margin:16px 0 8px; font-weight:800; color:#15833f; font-size:13px; }
     .chip { display:inline-block; background:#eef8f1; border:1px solid #cfe8d9; border-radius:20px; padding:5px 12px; font-size:12px; margin:0 6px 6px 0; }
-    .cambusa { display:inline-block; margin:12px 0; font-size:14px; background:#fdf6e3; padding:10px 14px; border-radius:10px; }
-    .note { margin-top:14px; font-size:12px; line-height:1.7; background:#f7faf8; padding:12px 16px; border-radius:10px; }
+    .cambusa { display:inline-block; margin:12px 0; font-size:14px; background:#fdf6e3; padding:10px 14px; border-radius:12px; }
+    .note { margin-top:14px; font-size:12px; line-height:1.7; background:#f7faf8; padding:12px 16px; border-radius:12px; }
     .note .nr { color:#e2574c; }
     .msg { margin-top:14px; padding:12px 14px; background:#eef8f1; border-left:4px solid #1fae5a; font-style:italic; font-size:13.5px; border-radius:8px; }
     .foot { margin-top:18px; font-size:10px; color:#9aa7b3; text-align:center; }
   </style></head><body>
-    <div class="top"><div class="b">Croceverde APM · Milano</div><h1>${titolo}</h1></div>
+    <div class="top">${LOGO}<div class="tt"><div class="b">Croce Verde · Milano</div><h1>${titolo}</h1><div class="sm">Foglio equipaggi</div></div></div>
     ${crewsHtml}
     ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
