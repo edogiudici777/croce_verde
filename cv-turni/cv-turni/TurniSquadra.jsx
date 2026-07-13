@@ -280,6 +280,7 @@ export default function App() {
           published={published}
           assignments={assignments}
           crewsFor={crewsFor}
+          galley={galley}
         />
       )}
       {tab === "capo" && (
@@ -379,13 +380,24 @@ function NotificationButton() {
   );
 }
 
-function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor }) {
+function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor, galley }) {
   const [personId, setPersonId] = useState("");
 
   const me = people.find((p) => p.id === personId);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
   const futureTurni = useMemo(() => turni.filter((t) => !isPast(t)), [turni]);
   const publishedTurni = useMemo(() => turni.filter((t) => published[t.id] && stillActive(t)), [turni, published]);
+
+  // turni futuri in cui SONO DI CAMBUSA (assegnato dal capo), col numero di chi mangia
+  const myGalleyTurni = useMemo(() => {
+    if (!personId) return [];
+    return turni
+      .filter((t) => !isPast(t) && (galley?.[t.id] || []).includes(personId))
+      .map((t) => {
+        const sheet = buildSheet(t, people, assignments, availability, crewsFor, pById, alerts);
+        return { turno: t, mealCount: sheet.mealCount, diets: sheet.diets };
+      });
+  }, [personId, turni, galley, people, assignments, availability, crewsFor, pById, alerts]);
 
   // turni futuri in cui HO dato indisponibilità: qui posso SEMPRE segnalare un rimpiazzo,
   // di mia iniziativa, senza aspettare il via del caposquadra.
@@ -440,6 +452,25 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             <option value="capo">Capoequipaggio</option>
           </select>
         </div>
+        {done && (
+          <div style={{ ...S.mealBox, marginTop: 8 }}>
+            <div style={S.mealRow}>
+              <span style={S.mealQ}>🍽️ Il rimpiazzo mangia in sede?</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="tap" style={{ ...S.mealBtn, ...(r.mealSub === true ? S.mealBtnYes : {}) }}
+                  onClick={() => saveMySub(t.id, "mealSub", r.mealSub === true ? null : true)}>Sì</button>
+                <button className="tap" style={{ ...S.mealBtn, ...(r.mealSub === false ? S.mealBtnNo : {}) }}
+                  onClick={() => saveMySub(t.id, "mealSub", r.mealSub === false ? null : false)}>No</button>
+              </div>
+            </div>
+            {r.mealSub === true && (
+              <input style={{ ...S.slotSelect, width: "100%", maxWidth: "none", marginTop: 8 }}
+                placeholder="Intolleranze o dieta del rimpiazzo? (facoltativo)"
+                value={r.dietSub || ""}
+                onChange={(e) => saveMySub(t.id, "dietSub", e.target.value)} />
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -468,7 +499,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
     const next = JSON.parse(JSON.stringify(availability));
     if (!next[turnoId]) next[turnoId] = {};
     const prev = next[turnoId][personId] || {};
-    next[turnoId][personId] = { ...map, reason: prev.reason || "", note: prev.note || "" };
+    next[turnoId][personId] = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "" };
     saveAvail(next);
   };
 
@@ -535,6 +566,34 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
             );
           })()}
 
+          {myGalleyTurni.length > 0 && (
+            <div style={S.galleyBanner}>
+              <div style={{ fontSize: 26 }}>🍝</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4, color: "#9a6a00" }}>
+                  Sei di cambusa!
+                </div>
+                <p style={{ ...S.helper, margin: "0 0 10px" }}>
+                  {myGalleyTurni.length === 1 ? "Questo turno tocca a te portare da mangiare:" : "Questi turni tocca a te portare da mangiare:"}
+                </p>
+                {myGalleyTurni.map(({ turno, mealCount, diets }) => (
+                  <div key={turno.id} style={S.galleyBannerRow}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <b style={{ textTransform: "capitalize" }}>{turno.label}</b>
+                      <span style={S.mealPill}>🍽️ {mealCount} {mealCount === 1 ? "persona" : "persone"} a cena</span>
+                    </div>
+                    {diets && diets.length > 0 && (
+                      <div style={{ fontSize: 12.5, color: "var(--c-absent)", marginTop: 5 }}>⚠️ Diete: {diets.join(" · ")}</div>
+                    )}
+                  </div>
+                ))}
+                <p style={{ ...S.helper, margin: "6px 0 0", fontSize: 12 }}>
+                  Il numero si aggiorna man mano che i compagni segnano se mangiano.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
           {me.permesso && (
@@ -600,6 +659,30 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                     {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
                   </div>
 
+                  {(cur.pre === "ENTRAMBE" || cur.post === "ENTRAMBE") && (
+                    <div style={S.mealBox}>
+                      <div style={S.mealRow}>
+                        <span style={S.mealQ}>🍽️ Mangi in sede?</span>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="tap"
+                            style={{ ...S.mealBtn, ...(cur.meal === true ? S.mealBtnYes : {}) }}
+                            onClick={() => setReasonField(t.id, "meal", cur.meal === true ? null : true)}>Sì</button>
+                          <button className="tap"
+                            style={{ ...S.mealBtn, ...(cur.meal === false ? S.mealBtnNo : {}) }}
+                            onClick={() => setReasonField(t.id, "meal", cur.meal === false ? null : false)}>No</button>
+                        </div>
+                      </div>
+                      {cur.meal === true && (
+                        <input
+                          style={{ ...S.slotSelect, width: "100%", maxWidth: "none", marginTop: 8 }}
+                          placeholder="Intolleranze o dieta particolare? (facoltativo)"
+                          value={cur.diet || ""}
+                          onChange={(e) => setReasonField(t.id, "diet", e.target.value)}
+                        />
+                      )}
+                    </div>
+                  )}
+
                   {cur.pre === "ASSENTE" && cur.post === "ASSENTE" && (
                     <div style={S.reasonBox}>
                       <div style={S.halfLabel}>Perché sei assente?</div>
@@ -628,6 +711,19 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                       ↳ con questo turno c'è anche la diurna di <b>{t.diurnaLabel}</b> (la trovi qui sotto in elenco)
                     </div>
                   )}
+
+                  {(() => {
+                    const gIds = galley?.[t.id] || [];
+                    if (gIds.length === 0) return null;
+                    const nomi = gIds.map((id) => pById[id]?.name || (typeof id === "string" && id.startsWith("ext:") ? id.slice(4).split("|")[0] : "")).filter(Boolean);
+                    if (nomi.length === 0) return null;
+                    const ioSono = gIds.includes(personId);
+                    return (
+                      <div style={{ ...S.cambusaLine, ...(ioSono ? S.cambusaLineMe : {}) }}>
+                        🍝 Cambusa: <b>{nomi.join(", ")}</b>{ioSono ? " — tocca a te!" : ""}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -1153,6 +1249,9 @@ function downloadSheetPDF(turno, sheet, message) {
   const cambusaHtml = sheet.cambusa && sheet.cambusa.length
     ? `<div><span class="cambusa">🍕 <b>Cambusa:</b> ${sheet.cambusa.map(esc).join("-")}</span></div>`
     : "";
+  const mealHtml = sheet.mealCount > 0
+    ? `<div><span class="cambusa">🍽️ <b>A cena in sede:</b> ${sheet.mealCount} ${sheet.mealCount === 1 ? "persona" : "persone"}${sheet.diets && sheet.diets.length ? ` · <span style="color:#c0392b">${sheet.diets.map(esc).join(" · ")}</span>` : ""}</span></div>`
+    : "";
 
   // note in fondo
   const assentiTutte = MOTIVI_ORDER.flatMap((k) => sheet.byReason[k]).sort((a, b) => a.localeCompare(b));
@@ -1199,6 +1298,7 @@ function downloadSheetPDF(turno, sheet, message) {
     ${crewsHtml}
     ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
+    ${mealHtml}
     ${noteHtml}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
     <div class="foot">Generato da Turni Squadra · Croceverde APM · ${new Date().toLocaleDateString("it-IT")}</div>
@@ -1651,6 +1751,11 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
       lines.push("");
     }
     if (cambusa.length) { lines.push(`🍝 Cambusa: ${cambusa.join(", ")}`); lines.push(""); }
+    if (sheet.mealCount > 0) {
+      lines.push(`🍽️ A cena in sede: ${sheet.mealCount}`);
+      if (sheet.diets && sheet.diets.length) lines.push(`  Diete: ${sheet.diets.join("; ")}`);
+      lines.push("");
+    }
     const anyAbsent = MOTIVI_ORDER.some((k) => sheet.byReason[k].length);
     if (anyAbsent) {
       lines.push("Assenti:");
@@ -2006,7 +2111,26 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
   });
   esuberi.sort((x, y) => x.localeCompare(y));
 
-  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi };
+  // PASTI: quante persone mangiano in sede (solo assegnati a equipaggio/centralino) + rimpiazzi che mangiano
+  let mealCount = 0;
+  const diets = [];
+  people.forEach((p) => {
+    if (!assignedIds.has(p.id)) return; // conta solo chi è davvero in turno
+    const a = availability[turno.id]?.[p.id];
+    if (a && a.meal === true) {
+      mealCount++;
+      if (a.diet && a.diet.trim()) diets.push(`${p.name}: ${a.diet.trim()}`);
+    }
+  });
+  // rimpiazzi esterni che mangiano (dai record segnalati)
+  Object.values(resolved).forEach((r) => {
+    if (r.sub && r.sub.trim() && r.mealSub === true) {
+      mealCount++;
+      if (r.dietSub && r.dietSub.trim()) diets.push(`${r.sub.trim()}: ${r.dietSub.trim()}`);
+    }
+  });
+
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -2094,6 +2218,15 @@ function SheetView({ turno, sheet, message }) {
         <div style={{ marginTop: 10 }}>
           <div style={S.sheetHalf}>🔄 Esuberi <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-soft)" }}>(disponibili non impiegati)</span></div>
           <div style={S.sheetCentralino}>{sheet.esuberi.join(" · ")}</div>
+        </div>
+      )}
+
+      {sheet.mealCount > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={S.sheetHalf}>🍽️ A cena in sede: <span style={{ color: "var(--c-both)" }}>{sheet.mealCount}</span> {sheet.mealCount === 1 ? "persona" : "persone"}</div>
+          {sheet.diets && sheet.diets.length > 0 && (
+            <div style={S.sheetCentralino}>⚠️ Diete/intolleranze: {sheet.diets.join(" · ")}</div>
+          )}
         </div>
       )}
 
@@ -2811,6 +2944,17 @@ const S = {
 
   // motivo assenza (compagni)
   reasonBox: { marginTop: 12, background: "rgba(226,87,76,.07)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 },
+  mealBox: { marginTop: 12, background: "rgba(240,180,41,.08)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 },
+  galleyBanner: { display: "flex", gap: 14, alignItems: "flex-start", marginTop: 22, background: "linear-gradient(135deg, rgba(240,180,41,.20), rgba(240,180,41,.08))", border: "1.5px solid var(--c-gold, #f0b429)", borderRadius: 16, padding: 18 },
+  galleyBannerRow: { background: "rgba(255,255,255,.5)", borderRadius: 10, padding: "8px 12px", marginBottom: 6 },
+  mealPill: { background: "var(--c-both)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20 },
+  cambusaLine: { marginTop: 12, fontSize: 13, color: "var(--ink-soft)", background: "rgba(240,180,41,.08)", borderRadius: 8, padding: "8px 12px" },
+  cambusaLineMe: { color: "#9a6a00", background: "rgba(240,180,41,.20)", fontWeight: 600 },
+  mealRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" },
+  mealQ: { fontSize: 14, fontWeight: 600, color: "var(--ink)" },
+  mealBtn: { padding: "7px 16px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel-2)", color: "var(--ink-soft)", fontSize: 14, fontWeight: 700 },
+  mealBtnYes: { background: "var(--c-both)", color: "#fff", borderColor: "var(--c-both)" },
+  mealBtnNo: { background: "var(--c-absent)", color: "#fff", borderColor: "var(--c-absent)" },
   reasonRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 },
   reasonBtn: { padding: "8px 6px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel-2)", color: "var(--ink-soft)", fontSize: 13, fontWeight: 600 },
   reasonBtnOn: { background: "var(--c-absent)", color: "#fff", borderColor: "var(--c-absent)" },
