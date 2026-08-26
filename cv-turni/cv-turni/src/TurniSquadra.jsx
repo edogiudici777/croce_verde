@@ -156,6 +156,7 @@ const KEY_ALERTS = "cv:alerts";           // { [turnoId]: { active:bool, resolve
 const KEY_PUBLISHED = "cv:published";     // { [turnoId]: { at:iso, message:string } }
 const KEY_REPORTS = "cv:reports";         // { [YYYY-MM]: { nturni, persone:{ [cognome]: {...counts} } } } — override/storico
 const KEY_IMPORTED = "cv:imported";       // { done: bool } — flag storico già importato
+const KEY_EMOJIS = "cv:emojis";           // { [personId]: "🦊" } — avatar scelto da ciascuno
 
 async function sget(key, fallback) {
   try {
@@ -191,6 +192,7 @@ export default function App() {
   const [published, setPublished] = useState({});
   const [reports, setReports] = useState({});
   const [imported, setImported] = useState({});
+  const [emojis, setEmojis] = useState({});
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
 
@@ -215,6 +217,7 @@ export default function App() {
       const pub = await sget(KEY_PUBLISHED, {});
       const rep = await sget(KEY_REPORTS, {});
       const imp = await sget(KEY_IMPORTED, {});
+      const emo = await sget(KEY_EMOJIS, {});
       setPeople(p);
       setAvailability(a);
       setAssignments(as);
@@ -224,6 +227,7 @@ export default function App() {
       setPublished(pub);
       setReports(rep);
       setImported(imp);
+      setEmojis(emo);
       setLoading(false);
     })();
   }, []);
@@ -243,6 +247,7 @@ export default function App() {
   const saveAlerts = (next) => { setAlerts(next); persist(KEY_ALERTS, next); };
   const savePublished = (next) => { setPublished(next); persist(KEY_PUBLISHED, next); };
   const saveReports = (next) => { setReports(next); persist(KEY_REPORTS, next); };
+  const saveEmojis = (next) => { setEmojis(next); persist(KEY_EMOJIS, next); };
   const saveImported = (next) => { setImported(next); persist(KEY_IMPORTED, next); };
 
   // numero equipaggi per metà di un turno (default EQUIPAGGI_PER_META).
@@ -264,6 +269,9 @@ export default function App() {
     );
   }
 
+  // persone con l'emoji scelto iniettato (così compare ovunque compare il nome)
+  const peopleE = (people || []).map((p) => (emojis[p.id] ? { ...p, emoji: emojis[p.id] } : p));
+
   return (
     <div style={S.shell}>
       <Style />
@@ -272,7 +280,7 @@ export default function App() {
       {tab === "compagni" && (
         <CompagniView
           turni={turni}
-          people={people}
+          people={peopleE}
           availability={availability}
           saveAvail={saveAvail}
           alerts={alerts}
@@ -281,13 +289,15 @@ export default function App() {
           assignments={assignments}
           crewsFor={crewsFor}
           galley={galley}
+          emojis={emojis}
+          saveEmojis={saveEmojis}
         />
       )}
       {tab === "capo" && (
         <CapoGate unlocked={unlocked} setUnlocked={setUnlocked}>
           <CapoView
             turni={turni}
-            people={people}
+            people={peopleE}
             savePeople={savePeople}
             availability={availability}
             assignments={assignments}
@@ -596,6 +606,11 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
+          <EmojiPicker current={emojis[personId] || ""} onPick={(e) => {
+            const next = { ...emojis };
+            if (e) next[personId] = e; else delete next[personId];
+            saveEmojis(next);
+          }} />
           {me.permesso && (
             <div style={{ ...S.bigCard, marginTop: 8, borderColor: "var(--c-post)" }}>
               <h2 style={{ ...S.h2, marginBottom: 6 }}>Sei in permesso 🌴</h2>
@@ -749,6 +764,36 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
         </>
       )}
     </main>
+  );
+}
+
+const AVATAR_EMOJIS = ["🦊","🐻","🐼","🐨","🦁","🐯","🐶","🐱","🦉","🐧","🦅","🐺","🦄","🐸","🐢","🐝","🦋","🐬","🐙","🦕","🚑","⛰️","🏔️","🚴","🏃","🧗","⚡","🔥","🌟","🍀","🎸","☕","🍕","🌈","💪","🛟","🩺","😎","🤙","👑"];
+
+function EmojiPicker({ current, onPick }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={S.emojiBox}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 30 }}>{current || "🙂"}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ink)" }}>La tua faccina</div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Scegline una: comparirà accanto al tuo nome ovunque.</div>
+        </div>
+        <button className="tap" style={S.emojiToggle} onClick={() => setOpen((o) => !o)}>
+          {open ? "Chiudi" : (current ? "Cambia" : "Scegli")}
+        </button>
+        {current && <button className="tap" style={S.emojiClear} onClick={() => onPick("")} title="Rimuovi">✕</button>}
+      </div>
+      {open && (
+        <div style={S.emojiGrid}>
+          {AVATAR_EMOJIS.map((e) => (
+            <button key={e} className="tap"
+              style={{ ...S.emojiCell, ...(current === e ? S.emojiCellOn : {}) }}
+              onClick={() => { onPick(e); setOpen(false); }}>{e}</button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2002,7 +2047,7 @@ function slotName(v, pById) {
   if (!v) return null;
   if (isExt(v)) { const e = parseExt(v); return { name: e.name, ext: true, squad: e.squad, note: e.note }; }
   const p = pById[v];
-  return p ? { name: p.name, ext: false } : null;
+  return p ? { name: p.emoji ? `${p.emoji} ${p.name}` : p.name, ext: false } : null;
 }
 
 // costruisce i dati del foglio per un turno: equipaggi + assenti raggruppati per motivo + non risposto
@@ -2679,7 +2724,7 @@ function Classifiche({ turni, people, assignments, galley, reports, availability
     const mergedR = mergeReports(reports || {}, auto);
     const byCognome = {};
     people.forEach((p) => {
-      byCognome[cognomeOf(p)] = { name: p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
+      byCognome[cognomeOf(p)] = { name: p.emoji ? `${p.emoji} ${p.name}` : p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
     });
     Object.values(mergedR).forEach((r) => {
       Object.entries(r.persone || {}).forEach(([cog, v]) => {
@@ -2950,6 +2995,12 @@ const S = {
   mealPill: { background: "var(--c-both)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20 },
   cambusaLine: { marginTop: 12, fontSize: 13, color: "var(--ink-soft)", background: "rgba(240,180,41,.08)", borderRadius: 8, padding: "8px 12px" },
   cambusaLineMe: { color: "#9a6a00", background: "rgba(240,180,41,.20)", fontWeight: 600 },
+  emojiBox: { marginTop: 12, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 14 },
+  emojiToggle: { background: "var(--c-both)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 700 },
+  emojiClear: { background: "var(--panel)", color: "var(--ink-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 11px", fontSize: 13 },
+  emojiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))", gap: 6, marginTop: 12 },
+  emojiCell: { fontSize: 24, padding: "6px 0", borderRadius: 10, border: "1px solid var(--line)", background: "var(--panel)", cursor: "pointer" },
+  emojiCellOn: { background: "rgba(31,174,90,.18)", borderColor: "var(--c-both)" },
   mealRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" },
   mealQ: { fontSize: 14, fontWeight: 600, color: "var(--ink)" },
   mealBtn: { padding: "7px 16px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel-2)", color: "var(--ink-soft)", fontSize: 14, fontWeight: 700 },
