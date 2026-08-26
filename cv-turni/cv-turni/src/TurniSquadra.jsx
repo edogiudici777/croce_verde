@@ -891,8 +891,7 @@ const REPORT_COLS = [
   { key: "H24", label: "H24" },
   { key: "gettone", label: "Gettone" },
   { key: "stazionamento", label: "Stazion." },
-  { key: "equi1", label: "1° equi" },
-  { key: "equi2", label: "2° equi", hot: true },
+  { key: "dopomezza", label: "Dopo mezza", hot: true },
   { key: "d3", label: "D3", hot: true },
   { key: "centralino", label: "Centralino", hot: true },
   { key: "esuberi", label: "Esuberi" },
@@ -900,7 +899,7 @@ const REPORT_COLS = [
 const MESI_LABEL = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 
 function emptyRow() {
-  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0, esuberi: 0 };
+  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, dopomezza: 0, d3: 0, centralino: 0, esuberi: 0 };
 }
 
 // id dei turni già presenti nello storico importato (per non ricontarli)
@@ -945,9 +944,9 @@ function computeReportsFromApp(turni, assignments, pById, availability) {
       const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : (i === 0 ? "H24" : "gettone"));
       crewIds(c).forEach((id) => addCat(id, cat));
     });
-    // post: [0]=1equi, [1]=2equi; "Stazionamento"/"Lavaggio" trattati a parte
+    // post: tutti gli equipaggi del dopo mezzanotte contano in "dopomezza"; "Stazionamento"/"Lavaggio" a parte
     (a.post || []).forEach((c, i) => {
-      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : (i === 0 ? "equi1" : "equi2"));
+      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : "dopomezza");
       crewIds(c).forEach((id) => addCat(id, cat));
     });
     // D3: 2° equipaggio del post, solo se attivo
@@ -1340,8 +1339,10 @@ function downloadSheetPDF(turno, sheet, message) {
     .note .nr { color:#e2574c; }
     .msg { margin-top:14px; padding:12px 14px; background:#eef8f1; border-left:4px solid #1fae5a; font-style:italic; font-size:13.5px; border-radius:8px; }
     .foot { margin-top:18px; font-size:10px; color:#9aa7b3; text-align:center; }
+    .f3badge { background:#efeafc; border:1px solid #d6c9f5; border-radius:10px; padding:9px 14px; font-size:12.5px; margin-bottom:14px; }
   </style></head><body>
     <div class="top">${LOGO}<div class="tt"><div class="b">Croce Verde · Milano</div><h1>${titolo}</h1><div class="sm">Foglio equipaggi</div></div></div>
+    ${sheet.f3d3 && sheet.f3d3.includes("D3") ? `<div class="f3badge">🌗 <b>Notte divisa F3 / D3</b> — 1° equipaggio fino alle 3, 2° dopo le 3 (D3)${sheet.d3names && sheet.d3names.length ? `. D3: ${sheet.d3names.map(esc).join(", ")}` : ""}</div>` : (sheet.f3d3 === "F3" ? `<div class="f3badge">🌗 Turno con <b>F3</b> (1° equipaggio fino alle 3)</div>` : "")}
     ${crewsHtml}
     ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
@@ -2177,7 +2178,16 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
     }
   });
 
-  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets };
+  // divisione notte F3/D3 (per mostrarla nel foglio/archivio)
+  const f3d3 = assignments[turno.id]?.f3d3 || "";
+  let d3names = [];
+  if (f3d3.includes("D3")) {
+    const crew2 = assignments[turno.id]?.post?.[1];
+    if (crew2) d3names = [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])]
+      .filter(Boolean).map((id) => (pById[id]?.name) || (typeof id === "string" && id.startsWith("ext:") ? id.slice(4).split("|")[0] : "")).filter(Boolean);
+  }
+
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets, f3d3, d3names };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -2213,6 +2223,18 @@ function SheetView({ turno, sheet, message }) {
   return (
     <div style={S.sheet}>
       <div style={S.sheetTitle}>Equipaggi · <span style={{ textTransform: "capitalize" }}>{turno.label} {turno.date.getFullYear()}</span></div>
+
+      {sheet.f3d3 && sheet.f3d3.includes("D3") && (
+        <div style={S.f3d3Badge}>
+          🌗 Notte divisa <b>F3 / D3</b> — il 1° equipaggio esce fino alle 3, il 2° dopo le 3 (D3).
+          {sheet.d3names && sheet.d3names.length > 0 && (
+            <div style={{ marginTop: 4, fontSize: 12.5 }}>Hanno fatto il <b>D3</b>: {sheet.d3names.join(", ")}</div>
+          )}
+        </div>
+      )}
+      {sheet.f3d3 === "F3" && (
+        <div style={S.f3d3Badge}>🌗 Turno con <b>F3</b> (1° equipaggio fino alle 3).</div>
+      )}
 
       {sheet.halves.map((h) => (
         <div key={h.key} style={{ marginBottom: 16 }}>
@@ -2732,7 +2754,7 @@ function Classifiche({ turni, people, assignments, galley, reports, availability
       Object.entries(r.persone || {}).forEach(([cog, v]) => {
         if (!byCognome[cog]) byCognome[cog] = { name: cog, id: null, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
         byCognome[cog].presenze += v.presenze || 0;
-        byCognome[cog].dopomezza += (v.equi1 || 0) + (v.equi2 || 0);
+        byCognome[cog].dopomezza += (v.dopomezza || 0) + (v.equi1 || 0) + (v.equi2 || 0);
         byCognome[cog].centralino += v.centralino || 0;
         byCognome[cog].d3 += v.d3 || 0;
       });
@@ -3053,6 +3075,7 @@ const S = {
   // foglio (in-app)
   sheet: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
   sheetTitle: { fontSize: 18, fontWeight: 800, marginBottom: 14, paddingBottom: 10, borderBottom: "2px solid var(--cv)" },
+  f3d3Badge: { background: "rgba(124,92,240,.12)", border: "1px solid rgba(124,92,240,.35)", borderRadius: 10, padding: "10px 14px", fontSize: 13.5, color: "var(--ink)", marginBottom: 14 },
   sheetHalf: { fontSize: 14, fontWeight: 700, color: "var(--cv)", margin: "0 0 8px" },
   sheetCrews: { display: "flex", flexWrap: "wrap", gap: 10 },
   sheetCrew: { flex: 1, minWidth: 200, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 },
