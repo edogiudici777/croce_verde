@@ -937,16 +937,18 @@ function computeReportsFromApp(turni, assignments, pById, availability) {
     const assignedIds = new Set();
     const addCat = (id, cat) => {
       const cog = cognomeOf(id); if (!cog) return;
-      ensurePers(mk, cog)[cat] += 1; present.add(cog); assignedIds.add(id);
+      if (cat) ensurePers(mk, cog)[cat] += 1; // cat null = solo presenza (es. Lavaggio)
+      present.add(cog); assignedIds.add(id);
     };
-    // pre: [0]=H24, [1]=gettone, eventuale "Stazionamento"
+    // pre: [0]=H24, [1]=gettone, "Stazionamento" a sé, "Lavaggio" = solo presenza
     (a.pre || []).forEach((c, i) => {
-      const cat = (c.name === "Stazionamento") ? "stazionamento" : (i === 0 ? "H24" : "gettone");
+      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : (i === 0 ? "H24" : "gettone"));
       crewIds(c).forEach((id) => addCat(id, cat));
     });
-    // post: [0]=1equi, [1]=2equi
+    // post: [0]=1equi, [1]=2equi; "Stazionamento"/"Lavaggio" trattati a parte
     (a.post || []).forEach((c, i) => {
-      crewIds(c).forEach((id) => addCat(id, i === 0 ? "equi1" : "equi2"));
+      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : (i === 0 ? "equi1" : "equi2"));
+      crewIds(c).forEach((id) => addCat(id, cat));
     });
     // D3: 2° equipaggio del post, solo se attivo
     if ((a.f3d3 || "").includes("D3") && (a.post || []).length > 1) {
