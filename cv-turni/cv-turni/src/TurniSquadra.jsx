@@ -390,7 +390,7 @@ function NotificationButton() {
   );
 }
 
-function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor, galley }) {
+function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor, galley, emojis, saveEmojis }) {
   const [personId, setPersonId] = useState("");
 
   const me = people.find((p) => p.id === personId);
@@ -606,8 +606,8 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
-          <EmojiPicker current={emojis[personId] || ""} onPick={(e) => {
-            const next = { ...emojis };
+          <EmojiPicker current={(emojis || {})[personId] || ""} onPick={(e) => {
+            const next = { ...(emojis || {}) };
             if (e) next[personId] = e; else delete next[personId];
             saveEmojis(next);
           }} />
