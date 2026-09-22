@@ -949,9 +949,10 @@ function computeReportsFromApp(turni, assignments, pById, availability) {
       const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : "dopomezza");
       crewIds(c).forEach((id) => addCat(id, cat));
     });
-    // D3: 2° equipaggio del post, solo se attivo
-    if ((a.f3d3 || "").includes("D3") && (a.post || []).length > 1) {
-      crewIds(a.post[1]).forEach((id) => { const cog = cognomeOf(id); if (cog) ensurePers(mk, cog).d3 += 1; });
+    // D3: le persone indicate come D3 (una o più, scelte dal capo)
+    const f3 = normF3D3(a);
+    if (f3.active) {
+      f3.d3ids.forEach((id) => { const cog = cognomeOf(id); if (cog) ensurePers(mk, cog).d3 += 1; });
     }
     // centralino
     const centr = a.centralino;
@@ -1342,12 +1343,13 @@ function downloadSheetPDF(turno, sheet, message) {
     .f3badge { background:#efeafc; border:1px solid #d6c9f5; border-radius:10px; padding:9px 14px; font-size:12.5px; margin-bottom:14px; }
   </style></head><body>
     <div class="top">${LOGO}<div class="tt"><div class="b">Croce Verde · Milano</div><h1>${titolo}</h1><div class="sm">Foglio equipaggi</div></div></div>
-    ${sheet.f3d3 && sheet.f3d3.includes("D3") ? `<div class="f3badge">🌗 <b>Notte divisa F3 / D3</b> — 1° equipaggio fino alle 3, 2° dopo le 3 (D3)${sheet.d3names && sheet.d3names.length ? `. D3: ${sheet.d3names.map(esc).join(", ")}` : ""}</div>` : (sheet.f3d3 === "F3" ? `<div class="f3badge">🌗 Turno con <b>F3</b> (1° equipaggio fino alle 3)</div>` : "")}
+    ${sheet.f3active ? `<div class="f3badge">🌗 <b>Notte divisa F3 / D3</b> — chi fa F3 stacca alle 3, chi fa D3 entra dopo le 3${sheet.d3names && sheet.d3names.length ? `. D3: ${sheet.d3names.map(esc).join(", ")}` : ""}</div>` : ""}
     ${crewsHtml}
     ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
     ${mealHtml}
     ${noteHtml}
+    ${sheet.capoNote && sheet.capoNote.trim() ? `<div class="msg" style="border-left-color:#f0a830;background:#fdf6e3">📝 ${esc(sheet.capoNote)}</div>` : ""}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
     <div class="foot">Generato da Turni Squadra · Croceverde APM · ${new Date().toLocaleDateString("it-IT")}</div>
   </body></html>`;
@@ -1368,6 +1370,8 @@ function eligibleFor(person, turnoId, half, availability) {
   return v === "ENTRAMBE"; // solo chi è realmente disponibile in quella metà
 }
 function canRole(person, role) {
+  // gli allievi possono stare SOLO al centralino, mai negli equipaggi
+  if (person.roles.includes("allievo")) return false;
   if (role === "autista") return person.roles.includes("autista");
   if (role === "capo") return person.roles.includes("capo");
   // soccorritore semplice: chi NON è autista né capo, oppure forzato
@@ -1405,13 +1409,13 @@ function autoAssign(turni, allPeople, availability, crewsFor) {
           }
           return null;
         };
-        crew.autista = pick((p) => p.roles.includes("autista"));
-        crew.capo = pick((p) => p.roles.includes("capo"));
-        // due soccorritori: preferisci chi NON è autista/capo
-        let s1 = pick((p) => !p.roles.includes("autista") && !p.roles.includes("capo"));
-        if (!s1) s1 = pick(() => true); // caso particolare: usa chiunque
-        let s2 = pick((p) => !p.roles.includes("autista") && !p.roles.includes("capo"));
-        if (!s2) s2 = pick(() => true);
+        crew.autista = pick((p) => p.roles.includes("autista") && !p.roles.includes("allievo"));
+        crew.capo = pick((p) => p.roles.includes("capo") && !p.roles.includes("allievo"));
+        // due soccorritori: preferisci chi NON è autista/capo; mai allievi
+        let s1 = pick((p) => !p.roles.includes("allievo") && !p.roles.includes("autista") && !p.roles.includes("capo"));
+        if (!s1) s1 = pick((p) => !p.roles.includes("allievo"));
+        let s2 = pick((p) => !p.roles.includes("allievo") && !p.roles.includes("autista") && !p.roles.includes("capo"));
+        if (!s2) s2 = pick((p) => !p.roles.includes("allievo"));
         crew.soccorritori = [s1, s2].filter(Boolean);
         crews.push(crew);
       }
@@ -1491,13 +1495,25 @@ function extractCentralino(a) {
   if (Array.isArray(c)) return c.filter(Boolean);
   return [...(c.pre?.people || []), ...(c.post?.people || [])].filter(Boolean);
 }
-// D3 = chi è nel 2° equipaggio del dopo mezzanotte, MA solo se l'opzione D3 è attiva
+// normalizza f3d3: gestisce sia il vecchio formato stringa ("F3","F3/D3") sia il nuovo oggetto {active, d3ids}
+function normF3D3(a) {
+  const f = a?.f3d3;
+  if (!f) return { active: false, d3ids: [] };
+  if (typeof f === "string") {
+    if (f.includes("D3")) {
+      const crew2 = a?.post?.[1];
+      const d3ids = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
+      return { active: true, d3ids };
+    }
+    if (f.includes("F3")) return { active: true, d3ids: [] };
+    return { active: false, d3ids: [] };
+  }
+  return { active: !!f.active, d3ids: f.d3ids || [] };
+}
+// D3 = le persone indicate come D3 (chi entra dopo le 3)
 function extractD3(a) {
-  const f = (a?.f3d3 || "");
-  if (!f.includes("D3")) return [];
-  const crew2 = a?.post?.[1];
-  if (!crew2) return [];
-  return [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean);
+  const f = normF3D3(a);
+  return f.active ? (f.d3ids || []) : [];
 }
 function extractGalleyFromAssign(a) { return []; } // la cambusa sta nel galley, gestita a parte
 
@@ -1702,6 +1718,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                   <AbsentDetails turno={t} people={people} availability={availability} />
 
                   <F3D3Toggle turno={t} turni={turni} assignments={assignments} saveAssign={saveAssign} pById={pById} />
+
+                  <CapoNoteEditor turno={t} assignments={assignments} saveAssign={saveAssign} />
 
                   <div style={S.alertControlRow}>
                     <button
@@ -2115,15 +2133,19 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
   // persone in permesso (per la sezione Note)
   const permessi = people.filter((p) => p.permesso).map((p) => p.name).sort((a, b) => a.localeCompare(b));
 
-  // mappa nome-rimpiazzo -> chi l'ha segnalato (dai rimpiazzi proposti dagli assenti)
+  // mappa nome-rimpiazzo -> chi rimpiazza: sia dai rimpiazzi segnalati dagli assenti, sia dal campo rimp del turno
   const resolved = alerts?.[turno.id]?.resolved || {};
   const proposerByName = {};
   Object.entries(resolved).forEach(([pid, r]) => {
     if (r.sub && r.sub.trim()) proposerByName[r.sub.trim().toLowerCase()] = pById[pid]?.name || "";
   });
+  // campo rimp salvato sul turno: { "Carrer": "Di Liberto", ... }
+  const rimpMap = assignments[turno.id]?.rimp || {};
+  Object.entries(rimpMap).forEach(([ext, chi]) => {
+    if (ext && chi) proposerByName[ext.trim().toLowerCase()] = chi;
+  });
 
-  // esterni negli equipaggi: se corrispondono a un rimpiazzo segnalato -> "(per Tizio)",
-  // altrimenti sono esterni aggiunti a mano, con eventuale nota.
+  // esterni/rimpiazzi negli equipaggi: se sappiamo chi rimpiazzano -> "(per Tizio)", altrimenti nota/squadra
   const rimpiazzi = [];
   halves.forEach((h) => h.crews.forEach((c) => {
     [c.autista, c.capo, ...c.soccorritori].forEach((s) => {
@@ -2179,15 +2201,14 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
   });
 
   // divisione notte F3/D3 (per mostrarla nel foglio/archivio)
-  const f3d3 = assignments[turno.id]?.f3d3 || "";
-  let d3names = [];
-  if (f3d3.includes("D3")) {
-    const crew2 = assignments[turno.id]?.post?.[1];
-    if (crew2) d3names = [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])]
-      .filter(Boolean).map((id) => (pById[id]?.name) || (typeof id === "string" && id.startsWith("ext:") ? id.slice(4).split("|")[0] : "")).filter(Boolean);
-  }
+  const f3 = normF3D3(assignments[turno.id]);
+  const nameOf = (id) => (pById[id]?.name) || (typeof id === "string" && id.startsWith("ext:") ? id.slice(4).split("|")[0] : "");
+  const d3names = f3.active ? f3.d3ids.map(nameOf).filter(Boolean) : [];
 
-  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets, f3d3, d3names };
+  // note libere del capo + rimpiazzi con "di chi" (dal campo rimp o dal nome interno rimpiazzato)
+  const capoNote = assignments[turno.id]?.note || "";
+
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets, f3active: f3.active, d3names, capoNote };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -2224,16 +2245,13 @@ function SheetView({ turno, sheet, message }) {
     <div style={S.sheet}>
       <div style={S.sheetTitle}>Equipaggi · <span style={{ textTransform: "capitalize" }}>{turno.label} {turno.date.getFullYear()}</span></div>
 
-      {sheet.f3d3 && sheet.f3d3.includes("D3") && (
+      {sheet.f3active && (
         <div style={S.f3d3Badge}>
-          🌗 Notte divisa <b>F3 / D3</b> — il 1° equipaggio esce fino alle 3, il 2° dopo le 3 (D3).
+          🌗 Notte divisa <b>F3 / D3</b> — chi fa F3 stacca alle 3, chi fa D3 entra dopo le 3.
           {sheet.d3names && sheet.d3names.length > 0 && (
-            <div style={{ marginTop: 4, fontSize: 12.5 }}>Hanno fatto il <b>D3</b>: {sheet.d3names.join(", ")}</div>
+            <div style={{ marginTop: 4, fontSize: 12.5 }}>Ha fatto il <b>D3</b>: {sheet.d3names.join(", ")}</div>
           )}
         </div>
-      )}
-      {sheet.f3d3 === "F3" && (
-        <div style={S.f3d3Badge}>🌗 Turno con <b>F3</b> (1° equipaggio fino alle 3).</div>
       )}
 
       {sheet.halves.map((h) => (
@@ -2297,6 +2315,10 @@ function SheetView({ turno, sheet, message }) {
             <div style={S.sheetCentralino}>⚠️ Diete/intolleranze: {sheet.diets.join(" · ")}</div>
           )}
         </div>
+      )}
+
+      {sheet.capoNote && sheet.capoNote.trim() && (
+        <div style={{ ...S.sheetMsg, borderLeftColor: "#f0a830", background: "rgba(240,168,48,.08)" }}>📝 {sheet.capoNote}</div>
       )}
 
       {message && message.trim() && (
@@ -2374,65 +2396,114 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, sub
   );
 }
 
-/* ---------- toggle F3/D3 (notte divisa in due, turno "sfortunato") ---------- */
+/* ---------- toggle F3/D3 (notte divisa): scegli CHI fa il D3 ---------- */
 function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
-  // le diurne non hanno il problema F3/D3: nessun controllo
-  if (turno.kind === "diurna") return null;
+  if (turno.kind === "diurna") return null; // le diurne non hanno F3/D3
 
-  const cur = assignments[turno.id]?.f3d3 || "";
-  const isActive = cur.includes("D3") || cur.includes("F3");
-  const toggle = () => {
+  const cur = normF3D3(assignments[turno.id]);
+  const isActive = cur.active;
+  const d3set = new Set(cur.d3ids);
+
+  const save = (active, d3ids) => {
     const next = JSON.parse(JSON.stringify(assignments));
     if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
-    next[turno.id].f3d3 = isActive ? "" : "F3/D3"; // un unico interruttore: divide la notte in F3 + D3
+    next[turno.id].f3d3 = { active, d3ids };
     saveAssign(next);
   };
+  const toggle = () => save(!isActive, isActive ? [] : cur.d3ids);
+  const togglePerson = (pid) => {
+    const s = new Set(d3set);
+    s.has(pid) ? s.delete(pid) : s.add(pid);
+    save(true, [...s]);
+  };
 
-  // hotness D3 su tutti i turni (chi ha fatto il D3 = 2° equipaggio post nei turni con D3 attivo)
   const { order, count, lastIdx } = useMemo(
-    () => activityCounts(turni, assignments, extractD3),
-    [turni, assignments]
+    () => activityCounts(turni, assignments, extractD3), [turni, assignments]
   );
-  // chi è nel 2° equipaggio del dopo mezzanotte (quelli che faranno il D3)
-  const crew2 = assignments[turno.id]?.post?.[1];
-  const d3people = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
+
+  // candidati D3 = tutte le persone assegnate dopo mezzanotte (tutti gli equipaggi post)
+  const postCrews = assignments[turno.id]?.post || [];
+  const candidati = [];
+  postCrews.forEach((c, ci) => {
+    [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).forEach((pid) => {
+      if (!candidati.find((x) => x.pid === pid)) candidati.push({ pid, crew: c.name || `Equi ${ci + 1}` });
+    });
+  });
+  const selezionaCrew = (ci) => {
+    const c = postCrews[ci]; if (!c) return;
+    const ids = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean);
+    save(true, ids);
+  };
 
   return (
     <div style={S.f3d3Box}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={S.f3d3Label}>🌗 Notte divisa in F3 / D3 (turno sfortunato):</span>
-        <button className="tap"
-          style={{ ...S.f3d3Btn, ...(isActive ? S.f3d3BtnOn : {}) }}
-          onClick={toggle}>
+        <span style={S.f3d3Label}>🌗 Notte divisa in F3 / D3:</span>
+        <button className="tap" style={{ ...S.f3d3Btn, ...(isActive ? S.f3d3BtnOn : {}) }} onClick={toggle}>
           {isActive ? "✓ Attiva — disattiva" : "Attiva divisione F3/D3"}
         </button>
       </div>
       {isActive && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 6 }}>
-            La notte è divisa: il 1° equipaggio esce fino alle 3 (F3), il <b>2° equipaggio del dopo mezzanotte</b> esce dopo le 3 (D3). Controlla che il D3 non tocchi sempre ai soliti:
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>
+            Chi fa <b>F3</b> stacca alle 3, chi fa <b>D3</b> entra dopo le 3. Spunta chi ha fatto il <b>D3</b> (puoi selezionarne uno solo o un equipaggio intero):
           </div>
-          {d3people.length === 0 ? (
-            <div style={S.helper}>Assegna prima il 2° equipaggio del dopo mezzanotte.</div>
+          {postCrews.length > 1 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {postCrews.map((c, ci) => (
+                <button key={ci} className="tap" style={S.f3d3QuickBtn} onClick={() => selezionaCrew(ci)}>
+                  Tutto il {c.name || `Equi ${ci + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {candidati.length === 0 ? (
+            <div style={S.helper}>Assegna prima gli equipaggi del dopo mezzanotte.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {d3people.map((pid) => {
+              {candidati.map(({ pid, crew }) => {
                 const nm = pById[pid]?.name
                   || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : null)
                   || "— (da riassegnare) —";
+                const sel = d3set.has(pid);
                 const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
                 return (
-                  <div key={pid} style={S.d3Row}>
-                    <span style={{ flex: 1 }}>{nm}</span>
+                  <button key={pid} className="tap" onClick={() => togglePerson(pid)}
+                    style={{ ...S.d3Row, cursor: "pointer", border: sel ? "1.5px solid #7c5cf0" : "1px solid transparent", background: sel ? "rgba(124,92,240,.14)" : "var(--panel-2)" }}>
+                    <span style={{ width: 20 }}>{sel ? "✓" : "○"}</span>
+                    <span style={{ flex: 1, textAlign: "left" }}>{nm} <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>· {crew}</span></span>
                     <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 fatti: <b>{count[pid] || 0}</b></span>
                     <HotDot h={h} count={count[pid] || 0} />
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- nota libera del caposquadra sul turno ---------- */
+function CapoNoteEditor({ turno, assignments, saveAssign }) {
+  const note = assignments[turno.id]?.note || "";
+  const setNote = (v) => {
+    const next = JSON.parse(JSON.stringify(assignments));
+    if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
+    next[turno.id].note = v;
+    saveAssign(next);
+  };
+  return (
+    <div style={S.capoNoteBox}>
+      <div style={S.f3d3Label}>📝 Note del caposquadra <span style={{ fontWeight: 400, fontSize: 12, color: "var(--ink-soft)" }}>(compaiono sul foglio e nel PDF)</span></div>
+      <textarea
+        style={S.capoNoteArea}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Es. rimpiazzo di un esterno, avvisi, chi chiude la sede…"
+        rows={2}
+      />
     </div>
   );
 }
@@ -2654,16 +2725,17 @@ function CentralinoEditor({ turno, turni, people, pById, availability, assignmen
    =========================================================================== */
 function PersoneCapo({ people, savePeople }) {
   const [name, setName] = useState("");
-  const [roles, setRoles] = useState({ autista: false, capo: false });
+  const [roles, setRoles] = useState({ autista: false, capo: false, allievo: false });
 
   const add = () => {
     if (!name.trim()) return;
     const r = ["soccorritore"];
     if (roles.autista) r.push("autista");
     if (roles.capo) r.push("capo");
+    if (roles.allievo) r.push("allievo");
     const id = "p" + Date.now();
     savePeople([...people, { id, name: name.trim(), roles: r }]);
-    setName(""); setRoles({ autista: false, capo: false });
+    setName(""); setRoles({ autista: false, capo: false, allievo: false });
   };
   const toggleRole = (pid, role) => {
     savePeople(
@@ -2702,6 +2774,9 @@ function PersoneCapo({ people, savePeople }) {
         <label style={S.checkPill}>
           <input type="checkbox" checked={roles.capo} onChange={(e) => setRoles((s) => ({ ...s, capo: e.target.checked }))} /> Capo
         </label>
+        <label style={S.checkPill}>
+          <input type="checkbox" checked={roles.allievo} onChange={(e) => setRoles((s) => ({ ...s, allievo: e.target.checked }))} /> Allievo
+        </label>
         <button className="tap" style={S.primaryBtn} onClick={add}>Aggiungi</button>
       </div>
 
@@ -2713,6 +2788,7 @@ function PersoneCapo({ people, savePeople }) {
               <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                 <RolePill on={p.roles.includes("autista")} onClick={() => toggleRole(p.id, "autista")}>🚑 Autista</RolePill>
                 <RolePill on={p.roles.includes("capo")} onClick={() => toggleRole(p.id, "capo")}>⭐ Capo</RolePill>
+                <RolePill on={p.roles.includes("allievo")} onClick={() => toggleRole(p.id, "allievo")}>🎓 Allievo</RolePill>
                 <RolePill on={p.permesso} onClick={() => togglePermesso(p.id)}>🌴 Permesso</RolePill>
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
@@ -3062,6 +3138,9 @@ const S = {
   f3d3Btn: { background: "var(--panel-2)", color: "var(--ink-soft)", border: "1px solid var(--line)", padding: "5px 10px", borderRadius: 8, fontSize: 12 },
   f3d3BtnOn: { background: "#7c5cf0", color: "#fff", borderColor: "#7c5cf0", fontWeight: 700 },
   f3d3Active: { fontSize: 11, color: "#9b78f0", fontWeight: 700 },
+  f3d3QuickBtn: { background: "rgba(124,92,240,.12)", color: "#7c5cf0", border: "1px solid rgba(124,92,240,.35)", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700 },
+  capoNoteBox: { background: "rgba(240,168,48,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginTop: 12 },
+  capoNoteArea: { width: "100%", marginTop: 8, background: "var(--panel)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 8, padding: 10, fontSize: 14, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" },
   hotHint: { fontSize: 10, fontWeight: 400, color: "var(--ink-soft)", marginLeft: 8 },
   d3Row: { display: "flex", alignItems: "center", gap: 10, fontSize: 13, background: "var(--panel-2)", borderRadius: 8, padding: "6px 10px" },
 
