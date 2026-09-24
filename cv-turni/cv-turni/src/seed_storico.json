@@ -1361,6 +1361,88 @@
     "Carrer": "Di Liberto"
    },
    "note": ""
+  },
+  "2026-09-22": {
+   "pre": [
+    {
+     "autista": "p6",
+     "capo": "p16",
+     "soccorritori": [
+      "p9",
+      "ext:Pinnetti|"
+     ],
+     "size": 4,
+     "name": "H24",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p11",
+     "capo": "p17",
+     "soccorritori": [
+      "p1",
+      "p24"
+     ],
+     "size": 4,
+     "name": "Gettone 1",
+     "inSede": "",
+     "fascia": ""
+    }
+   ],
+   "post": [
+    {
+     "autista": "p26",
+     "capo": "p5",
+     "soccorritori": [
+      "p10",
+      "p14"
+     ],
+     "size": 4,
+     "name": "1° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    },
+    {
+     "autista": "p7",
+     "capo": "p16",
+     "soccorritori": [
+      "ext:Pinnetti|",
+      "p24"
+     ],
+     "size": 4,
+     "name": "2° Equipaggio",
+     "inSede": "",
+     "fascia": ""
+    }
+   ],
+   "f3d3": {
+    "active": true,
+    "d3ids": [
+     "p7",
+     "p5",
+     "p10",
+     "p9"
+    ]
+   },
+   "centralino": {
+    "pre": {
+     "people": [
+      "p5",
+      "p14",
+      "ext:Casò|"
+     ],
+     "orario": "19:00-23:30"
+    },
+    "post": {
+     "people": [
+      "p1",
+      "p10"
+     ],
+     "orario": "23:30-06:30"
+    }
+   },
+   "rimp": {},
+   "note": "Pinnetti: training CS"
   }
  },
  "galley": {
@@ -1398,6 +1480,10 @@
   "2026-09-12": [
    "p10",
    "p20"
+  ],
+  "2026-09-22": [
+   "p6",
+   "p14"
   ]
  },
  "published": {
@@ -1460,6 +1546,10 @@
   "2026-09-12": {
    "at": "2026-09-12T00:00:00",
    "message": ""
+  },
+  "2026-09-22": {
+   "at": "2026-09-22T00:00:00",
+   "message": ""
   }
  },
  "config": {
@@ -1520,6 +1610,10 @@
    "post": 2
   },
   "2026-09-12": {
+   "pre": 2,
+   "post": 2
+  },
+  "2026-09-22": {
    "pre": 2,
    "post": 2
   }
@@ -2206,13 +2300,13 @@
    }
   },
   "2026-09": {
-   "nturni": 1,
+   "nturni": 2,
    "persone": {
     "Kauffmann": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 1,
-     "gettone": 0,
+     "gettone": 1,
      "stazionamento": 0,
      "dopomezza": 1,
      "d3": 1,
@@ -2221,7 +2315,7 @@
     },
     "Schupbach Gattinoni": {
      "presenze": 1,
-     "perc": 100,
+     "perc": 50,
      "H24": 1,
      "gettone": 0,
      "stazionamento": 0,
@@ -2231,20 +2325,20 @@
      "esuberi": 0
     },
     "Sinelli": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 1,
-     "gettone": 0,
+     "gettone": 1,
      "stazionamento": 0,
-     "dopomezza": 1,
+     "dopomezza": 2,
      "d3": 0,
      "centralino": 1,
      "esuberi": 0
     },
     "Dossena": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
-     "H24": 0,
+     "H24": 1,
      "gettone": 1,
      "stazionamento": 0,
      "dopomezza": 0,
@@ -2254,7 +2348,7 @@
     },
     "Somaglino": {
      "presenze": 1,
-     "perc": 100,
+     "perc": 50,
      "H24": 0,
      "gettone": 1,
      "stazionamento": 0,
@@ -2264,19 +2358,19 @@
      "esuberi": 0
     },
     "Guarnerio": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 0,
      "gettone": 1,
      "stazionamento": 0,
-     "dopomezza": 1,
-     "d3": 0,
-     "centralino": 0,
+     "dopomezza": 2,
+     "d3": 1,
+     "centralino": 1,
      "esuberi": 0
     },
     "Ressa": {
      "presenze": 1,
-     "perc": 100,
+     "perc": 50,
      "H24": 0,
      "gettone": 1,
      "stazionamento": 0,
@@ -2286,30 +2380,30 @@
      "esuberi": 0
     },
     "Dugoni": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 0,
      "gettone": 0,
      "stazionamento": 0,
-     "dopomezza": 1,
-     "d3": 0,
+     "dopomezza": 2,
+     "d3": 1,
      "centralino": 0,
      "esuberi": 0
     },
     "Tornotti": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 0,
      "gettone": 0,
      "stazionamento": 0,
-     "dopomezza": 1,
+     "dopomezza": 2,
      "d3": 0,
      "centralino": 0,
      "esuberi": 0
     },
     "Licitra": {
      "presenze": 1,
-     "perc": 100,
+     "perc": 50,
      "H24": 0,
      "gettone": 0,
      "stazionamento": 0,
@@ -2319,20 +2413,42 @@
      "esuberi": 0
     },
     "Manini": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 0,
      "gettone": 0,
      "stazionamento": 0,
-     "dopomezza": 1,
+     "dopomezza": 2,
      "d3": 0,
-     "centralino": 2,
+     "centralino": 3,
      "esuberi": 0
     },
     "Di Liberto": {
-     "presenze": 1,
+     "presenze": 2,
      "perc": 100,
      "H24": 0,
+     "gettone": 0,
+     "stazionamento": 0,
+     "dopomezza": 2,
+     "d3": 1,
+     "centralino": 1,
+     "esuberi": 0
+    },
+    "Mariotti D'Alessandro": {
+     "presenze": 1,
+     "perc": 50,
+     "H24": 0,
+     "gettone": 0,
+     "stazionamento": 0,
+     "dopomezza": 0,
+     "d3": 0,
+     "centralino": 1,
+     "esuberi": 0
+    },
+    "Pagliano": {
+     "presenze": 1,
+     "perc": 50,
+     "H24": 1,
      "gettone": 0,
      "stazionamento": 0,
      "dopomezza": 1,
@@ -2340,11 +2456,33 @@
      "centralino": 0,
      "esuberi": 0
     },
-    "Mariotti D'Alessandro": {
+    "Giudici": {
      "presenze": 1,
-     "perc": 100,
-     "H24": 0,
+     "perc": 50,
+     "H24": 1,
      "gettone": 0,
+     "stazionamento": 0,
+     "dopomezza": 0,
+     "d3": 1,
+     "centralino": 0,
+     "esuberi": 0
+    },
+    "Pizzagalli": {
+     "presenze": 1,
+     "perc": 50,
+     "H24": 0,
+     "gettone": 1,
+     "stazionamento": 0,
+     "dopomezza": 0,
+     "d3": 0,
+     "centralino": 0,
+     "esuberi": 0
+    },
+    "Boscarato": {
+     "presenze": 1,
+     "perc": 50,
+     "H24": 0,
+     "gettone": 1,
      "stazionamento": 0,
      "dopomezza": 0,
      "d3": 0,
