@@ -240,7 +240,48 @@ export default function App() {
   }, []);
 
   const savePeople = (next) => { setPeople(next); persist(KEY_PEOPLE, next); };
+
+  // modifica SICURA dell'anagrafica: rilegge la lista fresca dal database, applica solo
+  // la modifica (mutator riceve la lista aggiornata e ne restituisce una nuova), poi salva.
+  // Evita che una versione vecchia in memoria sovrascriva modifiche fatte da altri.
+  const savePeopleMerge = useCallback(async (mutator) => {
+    setSaveState("saving");
+    try {
+      const fresh = await sget(KEY_PEOPLE, SEED_PEOPLE);
+      const merged = mutator(Array.isArray(fresh) ? fresh : SEED_PEOPLE);
+      const ok = await sset(KEY_PEOPLE, merged);
+      if (ok) setPeople(merged);
+      setSaveState(ok ? "saved" : "error");
+      if (ok) setTimeout(() => setSaveState("idle"), 1500);
+    } catch {
+      setSaveState("error");
+    }
+  }, []);
   const saveAvail = (next) => { setAvailability(next); persist(KEY_AVAIL, next); };
+
+  // salvataggio SICURO della disponibilità di UNA persona su UN turno:
+  // rilegge l'ultima versione dal database e tocca solo la casella di quella persona,
+  // così due persone che segnano insieme non si cancellano a vicenda.
+  const saveMyAvail = useCallback(async (turnoId, personId, personRow) => {
+    // aggiorno subito lo schermo (ottimistico)
+    setAvailability((prev) => {
+      const n = { ...prev, [turnoId]: { ...(prev[turnoId] || {}), [personId]: personRow } };
+      return n;
+    });
+    setSaveState("saving");
+    try {
+      // rileggo il blocco fresco dal database e applico solo la mia casella
+      const fresh = await sget(KEY_AVAIL, {});
+      const merged = { ...fresh, [turnoId]: { ...(fresh[turnoId] || {}), [personId]: personRow } };
+      const ok = await sset(KEY_AVAIL, merged);
+      // riallineo lo stato locale al dato realmente salvato (con le modifiche altrui)
+      if (ok) setAvailability(merged);
+      setSaveState(ok ? "saved" : "error");
+      if (ok) setTimeout(() => setSaveState("idle"), 1500);
+    } catch {
+      setSaveState("error");
+    }
+  }, []);
   const saveAssign = (next) => { setAssignments(next); persist(KEY_ASSIGN, next); };
   const saveGalley = (next) => { setGalley(next); persist(KEY_GALLEY, next); };
   const saveConfig = (next) => { setConfig(next); persist(KEY_CONFIG, next); };
@@ -283,6 +324,7 @@ export default function App() {
           people={peopleE}
           availability={availability}
           saveAvail={saveAvail}
+          saveMyAvail={saveMyAvail}
           alerts={alerts}
           saveAlerts={saveAlerts}
           published={published}
@@ -299,6 +341,7 @@ export default function App() {
             turni={turni}
             people={peopleE}
             savePeople={savePeople}
+            savePeopleMerge={savePeopleMerge}
             availability={availability}
             assignments={assignments}
             saveAssign={saveAssign}
@@ -390,7 +433,7 @@ function NotificationButton() {
   );
 }
 
-function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor, galley, emojis, saveEmojis }) {
+function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, alerts, saveAlerts, published, assignments, crewsFor, galley, emojis, saveEmojis }) {
   const [personId, setPersonId] = useState("");
 
   const me = people.find((p) => p.id === personId);
@@ -486,16 +529,11 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   };
 
   const setDispo = (turnoId, half, value, diurna = false) => {
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    if (!next[turnoId][personId]) next[turnoId][personId] = { pre: "ASSENTE", post: "ASSENTE" };
-    if (diurna) {
-      next[turnoId][personId].pre = value;
-      next[turnoId][personId].post = value;
-    } else {
-      next[turnoId][personId][half] = value;
-    }
-    saveAvail(next);
+    const cur = availability[turnoId]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
+    const row = { ...cur };
+    if (diurna) { row.pre = value; row.post = value; }
+    else { row[half] = value; }
+    saveMyAvail(turnoId, personId, row);
   };
 
   // scorciatoia: imposta entrambe le metà in un colpo
@@ -506,19 +544,15 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
       DOPO: { pre: "ASSENTE", post: "ENTRAMBE" },
       TUTTO: { pre: "ENTRAMBE", post: "ENTRAMBE" },
     }[mode];
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    const prev = next[turnoId][personId] || {};
-    next[turnoId][personId] = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "" };
-    saveAvail(next);
+    const prev = availability[turnoId]?.[personId] || {};
+    const row = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "" };
+    saveMyAvail(turnoId, personId, row);
   };
 
   const setReasonField = (turnoId, field, value) => {
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    if (!next[turnoId][personId]) next[turnoId][personId] = { pre: "ASSENTE", post: "ASSENTE" };
-    next[turnoId][personId][field] = value;
-    saveAvail(next);
+    const cur = availability[turnoId]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
+    const row = { ...cur, [field]: value };
+    saveMyAvail(turnoId, personId, row);
   };
 
   return (
@@ -2723,9 +2757,11 @@ function CentralinoEditor({ turno, turni, people, pById, availability, assignmen
 /* ===========================================================================
    PERSONE — gestione squadra
    =========================================================================== */
-function PersoneCapo({ people, savePeople }) {
+function PersoneCapo({ people, savePeople, savePeopleMerge }) {
   const [name, setName] = useState("");
   const [roles, setRoles] = useState({ autista: false, capo: false, allievo: false });
+  // usa il salvataggio sicuro se disponibile, altrimenti quello classico
+  const mut = savePeopleMerge || ((fn) => savePeople(fn(people)));
 
   const add = () => {
     if (!name.trim()) return;
@@ -2734,25 +2770,24 @@ function PersoneCapo({ people, savePeople }) {
     if (roles.capo) r.push("capo");
     if (roles.allievo) r.push("allievo");
     const id = "p" + Date.now();
-    savePeople([...people, { id, name: name.trim(), roles: r }]);
+    const nuovo = { id, name: name.trim(), roles: r };
+    mut((list) => [...list, nuovo]);
     setName(""); setRoles({ autista: false, capo: false, allievo: false });
   };
   const toggleRole = (pid, role) => {
-    savePeople(
-      people.map((p) => {
-        if (p.id !== pid) return p;
-        const has = p.roles.includes(role);
-        let r = has ? p.roles.filter((x) => x !== role) : [...p.roles, role];
-        if (!r.includes("soccorritore")) r.push("soccorritore");
-        return { ...p, roles: r };
-      })
-    );
+    mut((list) => list.map((p) => {
+      if (p.id !== pid) return p;
+      const has = p.roles.includes(role);
+      let r = has ? p.roles.filter((x) => x !== role) : [...p.roles, role];
+      if (!r.includes("soccorritore")) r.push("soccorritore");
+      return { ...p, roles: r };
+    }));
   };
-  const remove = (pid) => savePeople(people.filter((p) => p.id !== pid));
+  const remove = (pid) => mut((list) => list.filter((p) => p.id !== pid));
   const togglePermesso = (pid) =>
-    savePeople(people.map((p) => (p.id === pid ? { ...p, permesso: !p.permesso } : p)));
+    mut((list) => list.map((p) => (p.id === pid ? { ...p, permesso: !p.permesso } : p)));
   const toggleHide = (pid, slot) =>
-    savePeople(people.map((p) => {
+    mut((list) => list.map((p) => {
       if (p.id !== pid) return p;
       const hide = { ...(p.hide || {}) };
       hide[slot] = !hide[slot];
