@@ -2109,13 +2109,18 @@ function slotName(v, pById) {
 function buildSheet(turno, people, assignments, availability, crewsFor, pById, alerts) {
   const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
-    // numero equipaggi: il massimo tra quelli previsti (config) e quelli realmente salvati nei dati
-    const configured = crewsFor(turno.id, h.key);
-    const saved = (assignments[turno.id]?.[h.key] || []).length;
-    const nCrews = Math.max(configured, saved);
+    const savedCrews = assignments[turno.id]?.[h.key] || [];
+    // un equipaggio "reale" ha almeno una persona assegnata o un nome/orario personalizzato
+    const isReal = (c) => !!(c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean) || (c.name && c.name.trim()) || (c.inSede && c.inSede.trim()) || (c.fascia && c.fascia.trim())));
+    // taglio gli equipaggi vuoti in coda (residui di configurazioni vecchie)
+    let lastReal = -1;
+    savedCrews.forEach((c, i) => { if (isReal(c)) lastReal = i; });
+    let nCrews = lastReal + 1;
+    // se non c'è nulla di salvato, mostro almeno quelli previsti dalla configurazione
+    if (nCrews === 0) nCrews = crewsFor(turno.id, h.key);
     const crews = [];
     for (let i = 0; i < nCrews; i++) {
-      const c = assignments[turno.id]?.[h.key]?.[i] || { autista: null, capo: null, soccorritori: [], size: 4 };
+      const c = savedCrews[i] || { autista: null, capo: null, soccorritori: [], size: 4 };
       const size = c.size || 4;
       const need = size - 2;
       crews.push({
