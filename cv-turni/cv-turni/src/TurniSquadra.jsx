@@ -2110,13 +2110,12 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
   const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
     const savedCrews = assignments[turno.id]?.[h.key] || [];
-    // un equipaggio "reale" ha almeno una persona assegnata o un nome/orario personalizzato
-    const isReal = (c) => !!(c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean) || (c.name && c.name.trim()) || (c.inSede && c.inSede.trim()) || (c.fascia && c.fascia.trim())));
-    // taglio gli equipaggi vuoti in coda (residui di configurazioni vecchie)
+    // un equipaggio è "reale" solo se ha almeno UNA persona assegnata.
+    // (nome/orario da soli non bastano: un equipaggio aggiunto e poi svuotato non deve comparire)
+    const isReal = (c) => !!(c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean)));
     let lastReal = -1;
     savedCrews.forEach((c, i) => { if (isReal(c)) lastReal = i; });
     let nCrews = lastReal + 1;
-    // se non c'è nulla di salvato, mostro almeno quelli previsti dalla configurazione
     if (nCrews === 0) nCrews = crewsFor(turno.id, h.key);
     const crews = [];
     for (let i = 0; i < nCrews; i++) {
