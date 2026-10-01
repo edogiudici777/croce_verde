@@ -232,12 +232,17 @@ export default function App() {
     })();
   }, []);
 
+  // mostra l'esito del salvataggio e lo nasconde da solo (successo 1.5s, errore 5s)
+  const reportSave = useCallback((ok) => {
+    setSaveState(ok ? "saved" : "error");
+    setTimeout(() => setSaveState("idle"), ok ? 1500 : 5000);
+  }, []);
+
   const persist = useCallback(async (key, value) => {
     setSaveState("saving");
     const ok = await sset(key, value);
-    setSaveState(ok ? "saved" : "error");
-    if (ok) setTimeout(() => setSaveState("idle"), 1500);
-  }, []);
+    reportSave(ok);
+  }, [reportSave]);
 
   const savePeople = (next) => { setPeople(next); persist(KEY_PEOPLE, next); };
 
@@ -251,12 +256,11 @@ export default function App() {
       const merged = mutator(Array.isArray(fresh) ? fresh : SEED_PEOPLE);
       const ok = await sset(KEY_PEOPLE, merged);
       if (ok) setPeople(merged);
-      setSaveState(ok ? "saved" : "error");
-      if (ok) setTimeout(() => setSaveState("idle"), 1500);
+      reportSave(ok);
     } catch {
-      setSaveState("error");
+      reportSave(false);
     }
-  }, []);
+  }, [reportSave]);
   const saveAvail = (next) => { setAvailability(next); persist(KEY_AVAIL, next); };
 
   // salvataggio SICURO della disponibilità di UNA persona su UN turno:
@@ -276,12 +280,11 @@ export default function App() {
       const ok = await sset(KEY_AVAIL, merged);
       // riallineo lo stato locale al dato realmente salvato (con le modifiche altrui)
       if (ok) setAvailability(merged);
-      setSaveState(ok ? "saved" : "error");
-      if (ok) setTimeout(() => setSaveState("idle"), 1500);
+      reportSave(ok);
     } catch {
-      setSaveState("error");
+      reportSave(false);
     }
-  }, []);
+  }, [reportSave]);
   const saveAssign = (next) => { setAssignments(next); persist(KEY_ASSIGN, next); };
   const saveGalley = (next) => { setGalley(next); persist(KEY_GALLEY, next); };
   const saveConfig = (next) => { setConfig(next); persist(KEY_CONFIG, next); };
@@ -316,6 +319,7 @@ export default function App() {
   return (
     <div style={S.shell}>
       <Style />
+      <SaveToast state={saveState} />
       <Header tab={tab} setTab={setTab} unlocked={unlocked} saveState={saveState} />
       <div key={tab} className="page-anim">
       {tab === "compagni" && (
@@ -418,6 +422,29 @@ function SaveDot({ state }) {
       <span style={{ width: 8, height: 8, borderRadius: 8, background: color }} />
       {txt}
     </span>
+  );
+}
+
+// avviso grande e visibile in basso: conferma il salvataggio o segnala l'errore
+function SaveToast({ state }) {
+  if (state === "idle") return null;
+  const cfg = {
+    saving: { bg: "rgba(91,155,240,.95)", icon: "⏳", txt: "Sto salvando…" },
+    saved: { bg: "rgba(31,174,90,.96)", icon: "✓", txt: "Salvato!" },
+    error: { bg: "rgba(226,87,76,.97)", icon: "⚠️", txt: "Non sono riuscito a salvare. Controlla la connessione e riprova." },
+  }[state];
+  return (
+    <div style={{
+      position: "fixed", left: "50%", transform: "translateX(-50%)",
+      bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", zIndex: 9999,
+      maxWidth: "90%", display: "flex", alignItems: "center", gap: 10,
+      background: cfg.bg, color: "#fff", padding: state === "error" ? "14px 18px" : "11px 18px",
+      borderRadius: 14, boxShadow: "0 6px 24px rgba(0,0,0,.28)",
+      fontSize: state === "error" ? 14 : 14.5, fontWeight: 600, lineHeight: 1.3,
+    }}>
+      <span style={{ fontSize: 20 }}>{cfg.icon}</span>
+      <span>{cfg.txt}</span>
+    </div>
   );
 }
 
