@@ -801,7 +801,14 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
   );
 }
 
-const AVATAR_EMOJIS = ["🦊","🐻","🐼","🐨","🦁","🐯","🐶","🐱","🦉","🐧","🦅","🐺","🦄","🐸","🐢","🐝","🦋","🐬","🐙","🦕","🚑","⛰️","🏔️","🚴","🏃","🧗","⚡","🔥","🌟","🍀","🎸","☕","🍕","🌈","💪","🛟","🩺","😎","🤙","👑"];
+const AVATAR_EMOJIS = [
+  "🦊","🐻","🐼","🐨","🦁","🐯","🐶","🐱","🦉","🐧","🦅","🐺","🦄","🐸","🐢","🐝","🦋","🐬","🐙","🦕",
+  "🐰","🐹","🐭","🐮","🐷","🐔","🦆","🦇","🦈","🐳","🐡","🦩","🦔","🐲","🦖","🦥","🦦","🐿️","🦨","🦂",
+  "🚑","⛰️","🏔️","🚴","🏃","🧗","🏊","⚽","🏀","🎾","🥊","🏋️","🧘","⛷️","🏂","🤸","🎯","🎳","🚵","⛹️",
+  "⚡","🔥","🌟","🍀","🎸","☕","🍕","🌈","💪","🛟","🩺","👑","🚀","🎨","🎧","📚","🌵","🌻","🍺","🍉",
+  "🌙","☀️","❄️","🍄","🧭","⚓","🎲","🃏","💎","🔦","🧩","🛴","🏆","🎺","🥁","🕹️","🎃","🧵","🪺","🍩",
+  "😎","🤙","😀","😂","😜","🤓","🥳","😇","🤠","🫡","🙃","😏","🤩","😴","🤖","👻","💀","🤡","👽","🥶",
+];
 
 function EmojiPicker({ current, onPick }) {
   const [open, setOpen] = useState(false);
@@ -1634,9 +1641,20 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
   const [open, setOpen] = useState(turni[0]?.id);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
 
-  const runAuto = () => {
-    saveAssign(autoAssign(turni, people, availability, crewsFor));
-    saveGalley(autoGalley(turni, people, availability, galley));
+  // proposta automatica SOLO per un turno, senza toccare gli altri
+  const runAutoOne = (turnoId) => {
+    const t = turni.find((x) => x.id === turnoId);
+    if (!t) return;
+    // avviso se quel turno ha già qualcuno assegnato (per non sovrascrivere senza volerlo)
+    const a = assignments[turnoId];
+    const hasData = a && ["pre", "post"].some((half) => (a[half] || []).some((c) => c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean))));
+    if (hasData && !window.confirm("Questo turno ha già degli equipaggi compilati. La proposta automatica li sovrascrive (solo per questo turno). Procedere?")) return;
+    // calcolo la proposta solo per questo turno e la innesto, lasciando intatti gli altri
+    const oneAssign = autoAssign([t], people, availability, crewsFor);
+    // la cambusa la calcolo sul giro completo (per rispettare la rotazione) ma applico solo questo turno
+    const fullGalley = autoGalley(turni, people, availability, galley);
+    saveAssign({ ...assignments, [turnoId]: oneAssign[turnoId] });
+    saveGalley({ ...galley, [turnoId]: fullGalley[turnoId] });
   };
 
   const setCrews = (turnoId, half, n) => {
@@ -1667,9 +1685,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
       <div style={S.toolbar}>
         <div>
           <h2 style={{ ...S.h2, margin: 0 }}>Turni & equipaggi</h2>
-          <p style={{ ...S.helper, margin: "2px 0 0" }}>Imposta quanti equipaggi servono per ogni metà (default {EQUIPAGGI_PER_META}+{EQUIPAGGI_PER_META}). Ogni equipaggio è autista + capo + 2 soccorritori.</p>
+          <p style={{ ...S.helper, margin: "2px 0 0" }}>Imposta quanti equipaggi servono per ogni metà (default {EQUIPAGGI_PER_META}+{EQUIPAGGI_PER_META}). Ogni equipaggio è autista + capo + 2 soccorritori. La proposta automatica è dentro ogni turno, così non tocca gli altri.</p>
         </div>
-        <button className="tap" style={S.primaryBtn} onClick={runAuto}>⚡ Genera proposta automatica</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1699,6 +1716,11 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                       ☀️ Con questo turno c'è anche la <b>diurna di {t.diurnaLabel}</b> (lo trovi come turno separato qui in elenco).
                     </div>
                   )}
+
+                  <div style={{ marginBottom: 14 }}>
+                    <button className="tap" style={S.primaryBtn} onClick={() => runAutoOne(t.id)}>⚡ Proposta automatica per questo turno</button>
+                    <p style={{ ...S.helper, margin: "6px 0 0" }}>Riempie gli equipaggi e la cambusa solo di questo turno, in base alle disponibilità. Non tocca gli altri turni.</p>
+                  </div>
 
                   {HALF_KEYS.map((half) => {
                     const nCrews = crewsFor(t.id, half);
