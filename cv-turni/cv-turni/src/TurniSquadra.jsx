@@ -572,7 +572,7 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
       TUTTO: { pre: "ENTRAMBE", post: "ENTRAMBE" },
     }[mode];
     const prev = availability[turnoId]?.[personId] || {};
-    const row = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "" };
+    const row = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "", msg: prev.msg || "" };
     saveMyAvail(turnoId, personId, row);
   };
 
@@ -756,6 +756,12 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                           onChange={(e) => setReasonField(t.id, "diet", e.target.value)}
                         />
                       )}
+                      <input
+                        style={{ ...S.slotSelect, width: "100%", maxWidth: "none", marginTop: 8 }}
+                        placeholder="Un messaggio al caposquadra? (facoltativo)"
+                        value={cur.msg || ""}
+                        onChange={(e) => setReasonField(t.id, "msg", e.target.value)}
+                      />
                     </div>
                   )}
 
@@ -1588,6 +1594,28 @@ function extractGalleyFromAssign(a) { return []; } // la cambusa sta nel galley,
 // conteggio generico su tutti i turni (storico + generati) per un estrattore su assignments
 function activityCounts(turni, assignments, extractor) {
   const order = galleyOrder(turni);
+  const count = {}; const lastIdx = {};
+  order.forEach((t, idx) => {
+    extractor(assignments[t.id]).forEach((id) => {
+      count[id] = (count[id] || 0) + 1;
+      lastIdx[id] = idx;
+    });
+  });
+  return { order, count, lastIdx };
+}
+
+// conteggio di un'attività negli ULTIMI mesi su TUTTI i turni salvati (storico incluso),
+// ricavando la data dall'id del turno. Serve a mostrare un totale recente coerente.
+function activityCountsRecent(assignments, extractor, months = 3) {
+  const limit = new Date();
+  limit.setMonth(limit.getMonth() - months);
+  limit.setHours(0, 0, 0, 0);
+  // ordino i turni per data (dall'id)
+  const entries = Object.keys(assignments || {})
+    .map((id) => ({ id, date: parseISO(id.endsWith(":diurna") ? id.slice(0, -":diurna".length) : id) }))
+    .filter((e) => e.date >= limit)
+    .sort((a, b) => a.date - b.date);
+  const order = entries.map((e) => ({ id: e.id, date: e.date }));
   const count = {}; const lastIdx = {};
   order.forEach((t, idx) => {
     extractor(assignments[t.id]).forEach((id) => {
@@ -2504,8 +2532,9 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
     save(true, [...s]);
   };
 
+  // conteggio D3 degli ultimi 3 mesi su tutti i turni (storico incluso) → coerente e recente
   const { order, count, lastIdx } = useMemo(
-    () => activityCounts(turni, assignments, extractD3), [turni, assignments]
+    () => activityCountsRecent(assignments, extractD3, 3), [assignments]
   );
 
   // candidati D3 = tutte le persone assegnate dopo mezzanotte (tutti gli equipaggi post)
@@ -2559,7 +2588,7 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
                     style={{ ...S.d3Row, cursor: "pointer", border: sel ? "1.5px solid #7c5cf0" : "1px solid transparent", background: sel ? "rgba(124,92,240,.14)" : "var(--panel-2)" }}>
                     <span style={{ width: 20 }}>{sel ? "✓" : "○"}</span>
                     <span style={{ flex: 1, textAlign: "left" }}>{nm} <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>· {crew}</span></span>
-                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 fatti: <b>{count[pid] || 0}</b></span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 (ultimi 3 mesi): <b>{count[pid] || 0}</b></span>
                     <HotDot h={h} count={count[pid] || 0} />
                   </button>
                 );
@@ -2612,20 +2641,49 @@ function AbsentDetails({ turno, people, availability }) {
     return out.sort((x, y) => x.name.localeCompare(y.name));
   }, [turno.id, people, availability]);
 
-  if (rows.length === 0) return null;
+  // messaggi lasciati da chi è disponibile
+  const messaggi = useMemo(() => {
+    const out = [];
+    people.forEach((p) => {
+      const a = availability[turno.id]?.[p.id];
+      if (!a) return;
+      const disponibile = a.pre === "ENTRAMBE" || a.post === "ENTRAMBE";
+      if (disponibile && a.msg && a.msg.trim()) out.push({ name: p.name, msg: a.msg.trim() });
+    });
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }, [turno.id, people, availability]);
+
+  if (rows.length === 0 && messaggi.length === 0) return null;
 
   return (
     <div style={S.absDetailBox}>
-      <div style={S.galleyTitle}>🙅 Assenti e motivi <span style={S.absDetailPriv}>(solo tu, non finisce nel PDF/WhatsApp)</span></div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {rows.map((r) => (
-          <div key={r.name} style={S.absDetailRow}>
-            <span style={{ fontWeight: 600 }}>{r.name}</span>
-            <span style={S.absDetailReason}>{MOTIVI[r.reason].icon} {MOTIVI[r.reason].label}</span>
-            {r.note && <span style={S.absDetailNote}>“{r.note}”</span>}
+      {rows.length > 0 && (
+        <>
+          <div style={S.galleyTitle}>🙅 Assenti e motivi <span style={S.absDetailPriv}>(solo tu, non finisce nel PDF/WhatsApp)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {rows.map((r) => (
+              <div key={r.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{r.name}</span>
+                <span style={S.absDetailReason}>{MOTIVI[r.reason].icon} {MOTIVI[r.reason].label}</span>
+                {r.note && <span style={S.absDetailNote}>“{r.note}”</span>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
+      {messaggi.length > 0 && (
+        <div style={{ marginTop: rows.length > 0 ? 12 : 0 }}>
+          <div style={S.galleyTitle}>💬 Messaggi dai disponibili <span style={S.absDetailPriv}>(solo tu)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {messaggi.map((m) => (
+              <div key={m.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{m.name}</span>
+                <span style={S.absDetailNote}>“{m.msg}”</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
