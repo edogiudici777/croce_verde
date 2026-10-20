@@ -285,7 +285,31 @@ export default function App() {
       reportSave(false);
     }
   }, [reportSave]);
-  const saveAssign = (next) => { setAssignments(next); persist(KEY_ASSIGN, next); };
+  // salvataggio SICURO degli equipaggi: invece di riscrivere tutto il blocco (rischio di
+  // cancellare i turni modificati da altri), rilegge la versione fresca dal database e
+  // riapplica SOLO i turni che sono effettivamente cambiati rispetto a quanto c'era in memoria.
+  const saveAssign = (next) => {
+    const prev = assignments; // la versione che il chiamante aveva in mano
+    setAssignments(next);     // aggiorno subito lo schermo (ottimistico)
+    (async () => {
+      setSaveState("saving");
+      try {
+        const fresh = await sget(KEY_ASSIGN, {});
+        const merged = { ...fresh };
+        // turni modificati o aggiunti
+        Object.keys(next).forEach((tid) => {
+          if (JSON.stringify(next[tid]) !== JSON.stringify(prev[tid])) merged[tid] = next[tid];
+        });
+        // turni rimossi dal chiamante (es. cancellazione volontaria)
+        Object.keys(prev).forEach((tid) => { if (!(tid in next)) delete merged[tid]; });
+        const ok = await sset(KEY_ASSIGN, merged);
+        if (ok) setAssignments(merged); // riallineo con le modifiche altrui
+        reportSave(ok);
+      } catch {
+        reportSave(false);
+      }
+    })();
+  };
   const saveGalley = (next) => { setGalley(next); persist(KEY_GALLEY, next); };
   const saveConfig = (next) => { setConfig(next); persist(KEY_CONFIG, next); };
   const saveAlerts = (next) => { setAlerts(next); persist(KEY_ALERTS, next); };
@@ -1155,12 +1179,14 @@ function ReportCapo({ turni, people, savePeople, reports, saveReports, imported,
             Somma lo storico importato e i turni che assegni in app (contati quando diventano passati). Dopomezza, centralino e D3 sono evidenziati: chi li fa va premiato. Le celle sono modificabili.
           </p>
         </div>
-        <button className="tap" style={S.primaryBtn} onClick={() => {
-          const msg = imported?.done
-            ? "Ricarica lo storico aggiornato dal file (squadra, turni in archivio, report e cambusa da maggio). Sovrascrive i dati storici con quelli del file. Procedere?"
-            : "Importa la squadra (26 persone con ruoli e vincoli), i turni storici in archivio, i report di maggio–luglio e lo storico cambuse. Sostituisce l'elenco attuale della squadra. Procedere?";
-          if (window.confirm(msg)) importStorico();
-        }}>{imported?.done ? "🔄 Ricarica storico" : "⬇️ Importa squadra e storico"}</button>
+        {!imported?.done && (
+          <button className="tap" style={S.primaryBtn} onClick={() => {
+            // doppia conferma: sovrascrive tutto. Da usare solo su un database vuoto/nuovo.
+            if (!window.confirm("ATTENZIONE: questo carica i dati di base e SOVRASCRIVE la squadra e i turni attuali. Va usato solo la primissima volta, su un'app vuota. Se l'app è già in uso, NON procedere. Continuare?")) return;
+            if (!window.confirm("Sei davvero sicura? Tutti i dati attuali verranno sostituiti con quelli di base. Questa azione non si annulla.")) return;
+            importStorico();
+          }}>⬇️ Importa dati iniziali</button>
+        )}
       </div>
 
       <div style={S.subnav}>
@@ -2532,9 +2558,9 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
     save(true, [...s]);
   };
 
-  // conteggio D3 degli ultimi 3 mesi su tutti i turni (storico incluso) → coerente e recente
+  // conteggio D3 degli ultimi 6 mesi su tutti i turni (storico incluso) → coerente e recente
   const { order, count, lastIdx } = useMemo(
-    () => activityCountsRecent(assignments, extractD3, 3), [assignments]
+    () => activityCountsRecent(assignments, extractD3, 6), [assignments]
   );
 
   // candidati D3 = tutte le persone assegnate dopo mezzanotte (tutti gli equipaggi post)
@@ -2588,7 +2614,7 @@ function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
                     style={{ ...S.d3Row, cursor: "pointer", border: sel ? "1.5px solid #7c5cf0" : "1px solid transparent", background: sel ? "rgba(124,92,240,.14)" : "var(--panel-2)" }}>
                     <span style={{ width: 20 }}>{sel ? "✓" : "○"}</span>
                     <span style={{ flex: 1, textAlign: "left" }}>{nm} <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>· {crew}</span></span>
-                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 (ultimi 3 mesi): <b>{count[pid] || 0}</b></span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 (ultimi 6 mesi): <b>{count[pid] || 0}</b></span>
                     <HotDot h={h} count={count[pid] || 0} />
                   </button>
                 );
