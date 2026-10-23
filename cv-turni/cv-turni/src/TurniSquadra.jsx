@@ -32,6 +32,7 @@ const DISPO = {
   PRIMA: { id: "PRIMA", label: "Solo prima di mezzanotte", short: "Prima", color: "var(--c-pre)" },
   DOPO: { id: "DOPO", label: "Solo dopo mezzanotte", short: "Dopo", color: "var(--c-post)" },
   ENTRAMBE: { id: "ENTRAMBE", label: "Tutto il turno", short: "Tutto", color: "var(--c-both)" },
+  FORSE: { id: "FORSE", label: "Forse", short: "?", color: "#f0a830" },
 };
 
 /* ruoli */
@@ -594,6 +595,7 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
       PRIMA: { pre: "ENTRAMBE", post: "ASSENTE" },
       DOPO: { pre: "ASSENTE", post: "ENTRAMBE" },
       TUTTO: { pre: "ENTRAMBE", post: "ENTRAMBE" },
+      FORSE: { pre: "FORSE", post: "FORSE" },
     }[mode];
     const prev = availability[turnoId]?.[personId] || {};
     const row = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "", msg: prev.msg || "" };
@@ -618,6 +620,8 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                 turno={t}
                 sheet={buildSheet(t, people, assignments, availability, crewsFor, pById, alerts)}
                 message={published[t.id]?.message}
+                pubInfo={published[t.id]}
+                showCalendar
               />
             </div>
           ))}
@@ -723,6 +727,7 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                 cur.pre === "ENTRAMBE" && cur.post === "ENTRAMBE" ? "TUTTO" :
                 cur.pre === "ENTRAMBE" && cur.post === "ASSENTE" ? "PRIMA" :
                 cur.pre === "ASSENTE" && cur.post === "ENTRAMBE" ? "DOPO" :
+                cur.pre === "FORSE" && cur.post === "FORSE" ? "FORSE" :
                 cur.pre === "ASSENTE" && cur.post === "ASSENTE" ? "ASSENTE" : null;
               return (
                 <div key={t.id} className="card-h" style={{ ...S.turnoCard, ...(isDiurna ? S.turnoCardDiurna : {}) }}>
@@ -741,6 +746,7 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                       ["TUTTO", "Tutto il turno"],
                       ["PRIMA", isDiurna ? "Solo mattina" : "Solo prima"],
                       ["DOPO", isDiurna ? "Solo pomeriggio" : "Solo dopo"],
+                      ["FORSE", "Forse"],
                       ["ASSENTE", "Assente"],
                     ].map(([mode, lbl]) => (
                       <button
@@ -896,20 +902,25 @@ function EmojiPicker({ current, onPick }) {
 }
 
 function HalfPicker({ label, value, onChange }) {
+  const opts = [
+    ["ASSENTE", "No", "var(--c-absent)"],
+    ["FORSE", "Forse", "#f0a830"],
+    ["ENTRAMBE", "Disponibile", "var(--c-both)"],
+  ];
   return (
     <div style={{ flex: 1 }}>
       <div style={S.halfLabel}>{label}</div>
       <div style={S.segGroup}>
-        {["ASSENTE", "ENTRAMBE"].map((opt) => (
+        {opts.map(([opt, txt, col]) => (
           <button
             key={opt}
             onClick={() => onChange(opt)}
             style={{
               ...S.segBtn,
-              ...(value === opt ? { ...S.segBtnOn, background: opt === "ENTRAMBE" ? "var(--c-both)" : "var(--c-absent)" } : {}),
+              ...(value === opt ? { ...S.segBtnOn, background: col } : {}),
             }}
           >
-            {opt === "ENTRAMBE" ? "Disponibile" : "No"}
+            {txt}
           </button>
         ))}
       </div>
@@ -1333,6 +1344,52 @@ function ArchivioCapo({ turni, people, availability, assignments, crewsFor, publ
 }
 
 /* ---------- generazione PDF (via stampa browser, nessuna libreria) ---------- */
+// genera e scarica un evento calendario (.ics) per un turno, con titolo + equipaggio
+function downloadTurnoICS(turno, sheet) {
+  const pad = (n) => String(n).padStart(2, "0");
+  // orari: per la notturna 19:30→07:30 del giorno dopo; per la diurna 07:00→18:30
+  const d = turno.date;
+  const isDiurna = turno.kind === "diurna";
+  const start = new Date(d); const end = new Date(d);
+  if (isDiurna) { start.setHours(7, 0, 0, 0); end.setHours(18, 30, 0, 0); }
+  else { start.setHours(19, 30, 0, 0); end.setDate(end.getDate() + 1); end.setHours(7, 30, 0, 0); }
+  // formato data per ics (ora locale)
+  const fmt = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
+  // equipaggio: elenco per la descrizione
+  const righe = [];
+  (sheet.halves || []).forEach((h) => {
+    h.crews.forEach((c) => {
+      const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => s.name);
+      if (membri.length) righe.push(`${c.name}: ${membri.join(", ")}`);
+    });
+  });
+  const desc = righe.join("\\n") || "Equipaggio da definire";
+  const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde`;
+  // UID fisso per turno: così riaggiungendolo aggiorna invece di duplicare (sui calendari che lo supportano)
+  const uid = `turno-${turno.id}@croce-verde.vercel.app`;
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//TurniSquadra//IT",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${fmt(new Date())}`,
+    `DTSTART:${fmt(start)}`,
+    `DTEND:${fmt(end)}`,
+    `SUMMARY:${titolo}`,
+    `DESCRIPTION:${desc}`,
+    "LOCATION:Croce Verde APM Milano",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `turno-${turno.id}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function downloadSheetPDF(turno, sheet, message) {
   const esc = (s) => String(s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const tipo = turno.kind === "diurna" ? "DIURNA" : "NOTTURNA";
@@ -1974,7 +2031,11 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
   };
 
   const publish = () => {
-    const next = { ...published, [turno.id]: { at: new Date().toISOString(), message: msg } };
+    const already = !!published[turno.id];           // era già pubblicato prima?
+    const next = {
+      ...published,
+      [turno.id]: { at: new Date().toISOString(), message: msg, republished: already },
+    };
     savePublished(next);
     shareWhatsApp(buildTextSummary());
   };
@@ -2366,7 +2427,7 @@ function defaultFascia(turno, half) {
 }
 
 // vista del foglio (usata in-app per i compagni)
-function SheetView({ turno, sheet, message }) {
+function SheetView({ turno, sheet, message, pubInfo, showCalendar }) {
   const renderSlot = (role, s) =>
     s ? (
       <div key={role + s.name} style={S.sheetSlot}>
@@ -2385,6 +2446,16 @@ function SheetView({ turno, sheet, message }) {
   return (
     <div style={S.sheet}>
       <div style={S.sheetTitle}>Equipaggi · <span style={{ textTransform: "capitalize" }}>{turno.label} {turno.date.getFullYear()}</span></div>
+
+      {showCalendar && (
+        <div style={{ marginBottom: 12 }}>
+          {pubInfo?.republished && (
+            <div style={S.calWarn}>🔄 Turno aggiornato: se l'avevi già messo in calendario, riaggiungilo per avere la versione giusta.</div>
+          )}
+          <button className="tap" style={S.calBtn} onClick={() => downloadTurnoICS(turno, sheet)}>📅 Aggiungi al calendario</button>
+          <span style={S.calHint}>Se il turno cambia, dovrai riaggiungerlo.</span>
+        </div>
+      )}
 
       {sheet.f3active && (
         <div style={S.f3d3Badge}>
@@ -2679,7 +2750,23 @@ function AbsentDetails({ turno, people, availability }) {
     return out.sort((x, y) => x.name.localeCompare(y.name));
   }, [turno.id, people, availability]);
 
-  if (rows.length === 0 && messaggi.length === 0) return null;
+  // chi ha messo "Forse" (incerto): visibile al capo ma non assegnato in automatico
+  const forse = useMemo(() => {
+    const out = [];
+    people.forEach((p) => {
+      if (p.permesso) return;
+      const a = availability[turno.id]?.[p.id];
+      if (!a) return;
+      const haForse = a.pre === "FORSE" || a.post === "FORSE";
+      if (haForse) {
+        const quale = a.pre === "FORSE" && a.post === "FORSE" ? "" : (a.pre === "FORSE" ? " (prima mezzanotte)" : " (dopo mezzanotte)");
+        out.push({ name: p.name, quale });
+      }
+    });
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }, [turno.id, people, availability]);
+
+  if (rows.length === 0 && messaggi.length === 0 && forse.length === 0) return null;
 
   return (
     <div style={S.absDetailBox}>
@@ -2697,8 +2784,21 @@ function AbsentDetails({ turno, people, availability }) {
           </div>
         </>
       )}
+      {forse.length > 0 && (
+        <div style={{ marginTop: (rows.length > 0 || messaggi.length > 0) ? 12 : 0 }}>
+          <div style={S.galleyTitle}>🤔 Forse (incerti) <span style={S.absDetailPriv}>(non assegnati in automatico)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {forse.map((f) => (
+              <div key={f.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{f.name}</span>
+                {f.quale && <span style={S.absDetailNote}>{f.quale}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {messaggi.length > 0 && (
-        <div style={{ marginTop: rows.length > 0 ? 12 : 0 }}>
+        <div style={{ marginTop: (rows.length > 0 || forse.length > 0) ? 12 : 0 }}>
           <div style={S.galleyTitle}>💬 Messaggi dai disponibili <span style={S.absDetailPriv}>(solo tu)</span></div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {messaggi.map((m) => (
@@ -3326,6 +3426,9 @@ const S = {
   // foglio (in-app)
   sheet: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
   sheetTitle: { fontSize: 18, fontWeight: 800, marginBottom: 14, paddingBottom: 10, borderBottom: "2px solid var(--cv)" },
+  calBtn: { background: "var(--c-post)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 14, fontWeight: 700 },
+  calHint: { display: "block", fontSize: 11, color: "var(--ink-soft)", marginTop: 5 },
+  calWarn: { background: "rgba(240,168,48,.14)", border: "1px solid rgba(240,168,48,.45)", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "var(--ink)", marginBottom: 10 },
   f3d3Badge: { background: "rgba(124,92,240,.12)", border: "1px solid rgba(124,92,240,.35)", borderRadius: 10, padding: "10px 14px", fontSize: 13.5, color: "var(--ink)", marginBottom: 14 },
   sheetHalf: { fontSize: 14, fontWeight: 700, color: "var(--cv)", margin: "0 0 8px" },
   sheetCrews: { display: "flex", flexWrap: "wrap", gap: 10 },
