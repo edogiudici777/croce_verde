@@ -32,6 +32,7 @@ const DISPO = {
   PRIMA: { id: "PRIMA", label: "Solo prima di mezzanotte", short: "Prima", color: "var(--c-pre)" },
   DOPO: { id: "DOPO", label: "Solo dopo mezzanotte", short: "Dopo", color: "var(--c-post)" },
   ENTRAMBE: { id: "ENTRAMBE", label: "Tutto il turno", short: "Tutto", color: "var(--c-both)" },
+  FORSE: { id: "FORSE", label: "Forse", short: "?", color: "#f0a830" },
 };
 
 /* ruoli */
@@ -156,6 +157,7 @@ const KEY_ALERTS = "cv:alerts";           // { [turnoId]: { active:bool, resolve
 const KEY_PUBLISHED = "cv:published";     // { [turnoId]: { at:iso, message:string } }
 const KEY_REPORTS = "cv:reports";         // { [YYYY-MM]: { nturni, persone:{ [cognome]: {...counts} } } } — override/storico
 const KEY_IMPORTED = "cv:imported";       // { done: bool } — flag storico già importato
+const KEY_EMOJIS = "cv:emojis";           // { [personId]: "🦊" } — avatar scelto da ciascuno
 
 async function sget(key, fallback) {
   try {
@@ -191,6 +193,7 @@ export default function App() {
   const [published, setPublished] = useState({});
   const [reports, setReports] = useState({});
   const [imported, setImported] = useState({});
+  const [emojis, setEmojis] = useState({});
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
 
@@ -215,6 +218,7 @@ export default function App() {
       const pub = await sget(KEY_PUBLISHED, {});
       const rep = await sget(KEY_REPORTS, {});
       const imp = await sget(KEY_IMPORTED, {});
+      const emo = await sget(KEY_EMOJIS, {});
       setPeople(p);
       setAvailability(a);
       setAssignments(as);
@@ -224,25 +228,95 @@ export default function App() {
       setPublished(pub);
       setReports(rep);
       setImported(imp);
+      setEmojis(emo);
       setLoading(false);
     })();
+  }, []);
+
+  // mostra l'esito del salvataggio e lo nasconde da solo (successo 1.5s, errore 5s)
+  const reportSave = useCallback((ok) => {
+    setSaveState(ok ? "saved" : "error");
+    setTimeout(() => setSaveState("idle"), ok ? 1500 : 5000);
   }, []);
 
   const persist = useCallback(async (key, value) => {
     setSaveState("saving");
     const ok = await sset(key, value);
-    setSaveState(ok ? "saved" : "error");
-    if (ok) setTimeout(() => setSaveState("idle"), 1500);
-  }, []);
+    reportSave(ok);
+  }, [reportSave]);
 
   const savePeople = (next) => { setPeople(next); persist(KEY_PEOPLE, next); };
+
+  // modifica SICURA dell'anagrafica: rilegge la lista fresca dal database, applica solo
+  // la modifica (mutator riceve la lista aggiornata e ne restituisce una nuova), poi salva.
+  // Evita che una versione vecchia in memoria sovrascriva modifiche fatte da altri.
+  const savePeopleMerge = useCallback(async (mutator) => {
+    setSaveState("saving");
+    try {
+      const fresh = await sget(KEY_PEOPLE, SEED_PEOPLE);
+      const merged = mutator(Array.isArray(fresh) ? fresh : SEED_PEOPLE);
+      const ok = await sset(KEY_PEOPLE, merged);
+      if (ok) setPeople(merged);
+      reportSave(ok);
+    } catch {
+      reportSave(false);
+    }
+  }, [reportSave]);
   const saveAvail = (next) => { setAvailability(next); persist(KEY_AVAIL, next); };
-  const saveAssign = (next) => { setAssignments(next); persist(KEY_ASSIGN, next); };
+
+  // salvataggio SICURO della disponibilità di UNA persona su UN turno:
+  // rilegge l'ultima versione dal database e tocca solo la casella di quella persona,
+  // così due persone che segnano insieme non si cancellano a vicenda.
+  const saveMyAvail = useCallback(async (turnoId, personId, personRow) => {
+    // aggiorno subito lo schermo (ottimistico)
+    setAvailability((prev) => {
+      const n = { ...prev, [turnoId]: { ...(prev[turnoId] || {}), [personId]: personRow } };
+      return n;
+    });
+    setSaveState("saving");
+    try {
+      // rileggo il blocco fresco dal database e applico solo la mia casella
+      const fresh = await sget(KEY_AVAIL, {});
+      const merged = { ...fresh, [turnoId]: { ...(fresh[turnoId] || {}), [personId]: personRow } };
+      const ok = await sset(KEY_AVAIL, merged);
+      // riallineo lo stato locale al dato realmente salvato (con le modifiche altrui)
+      if (ok) setAvailability(merged);
+      reportSave(ok);
+    } catch {
+      reportSave(false);
+    }
+  }, [reportSave]);
+  // salvataggio SICURO degli equipaggi: invece di riscrivere tutto il blocco (rischio di
+  // cancellare i turni modificati da altri), rilegge la versione fresca dal database e
+  // riapplica SOLO i turni che sono effettivamente cambiati rispetto a quanto c'era in memoria.
+  const saveAssign = (next) => {
+    const prev = assignments; // la versione che il chiamante aveva in mano
+    setAssignments(next);     // aggiorno subito lo schermo (ottimistico)
+    (async () => {
+      setSaveState("saving");
+      try {
+        const fresh = await sget(KEY_ASSIGN, {});
+        const merged = { ...fresh };
+        // turni modificati o aggiunti
+        Object.keys(next).forEach((tid) => {
+          if (JSON.stringify(next[tid]) !== JSON.stringify(prev[tid])) merged[tid] = next[tid];
+        });
+        // turni rimossi dal chiamante (es. cancellazione volontaria)
+        Object.keys(prev).forEach((tid) => { if (!(tid in next)) delete merged[tid]; });
+        const ok = await sset(KEY_ASSIGN, merged);
+        if (ok) setAssignments(merged); // riallineo con le modifiche altrui
+        reportSave(ok);
+      } catch {
+        reportSave(false);
+      }
+    })();
+  };
   const saveGalley = (next) => { setGalley(next); persist(KEY_GALLEY, next); };
   const saveConfig = (next) => { setConfig(next); persist(KEY_CONFIG, next); };
   const saveAlerts = (next) => { setAlerts(next); persist(KEY_ALERTS, next); };
   const savePublished = (next) => { setPublished(next); persist(KEY_PUBLISHED, next); };
   const saveReports = (next) => { setReports(next); persist(KEY_REPORTS, next); };
+  const saveEmojis = (next) => { setEmojis(next); persist(KEY_EMOJIS, next); };
   const saveImported = (next) => { setImported(next); persist(KEY_IMPORTED, next); };
 
   // numero equipaggi per metà di un turno (default EQUIPAGGI_PER_META).
@@ -264,31 +338,39 @@ export default function App() {
     );
   }
 
+  // persone con l'emoji scelto iniettato (così compare ovunque compare il nome)
+  const peopleE = (people || []).map((p) => (emojis[p.id] ? { ...p, emoji: emojis[p.id] } : p));
+
   return (
     <div style={S.shell}>
       <Style />
+      <SaveToast state={saveState} />
       <Header tab={tab} setTab={setTab} unlocked={unlocked} saveState={saveState} />
       <div key={tab} className="page-anim">
       {tab === "compagni" && (
         <CompagniView
           turni={turni}
-          people={people}
+          people={peopleE}
           availability={availability}
           saveAvail={saveAvail}
+          saveMyAvail={saveMyAvail}
           alerts={alerts}
           saveAlerts={saveAlerts}
           published={published}
           assignments={assignments}
           crewsFor={crewsFor}
           galley={galley}
+          emojis={emojis}
+          saveEmojis={saveEmojis}
         />
       )}
       {tab === "capo" && (
         <CapoGate unlocked={unlocked} setUnlocked={setUnlocked}>
           <CapoView
             turni={turni}
-            people={people}
+            people={peopleE}
             savePeople={savePeople}
+            savePeopleMerge={savePeopleMerge}
             availability={availability}
             assignments={assignments}
             saveAssign={saveAssign}
@@ -368,6 +450,29 @@ function SaveDot({ state }) {
   );
 }
 
+// avviso grande e visibile in basso: conferma il salvataggio o segnala l'errore
+function SaveToast({ state }) {
+  if (state === "idle") return null;
+  const cfg = {
+    saving: { bg: "rgba(91,155,240,.95)", icon: "⏳", txt: "Sto salvando…" },
+    saved: { bg: "rgba(31,174,90,.96)", icon: "✓", txt: "Salvato!" },
+    error: { bg: "rgba(226,87,76,.97)", icon: "⚠️", txt: "Non sono riuscito a salvare. Controlla la connessione e riprova." },
+  }[state];
+  return (
+    <div style={{
+      position: "fixed", left: "50%", transform: "translateX(-50%)",
+      bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", zIndex: 9999,
+      maxWidth: "90%", display: "flex", alignItems: "center", gap: 10,
+      background: cfg.bg, color: "#fff", padding: state === "error" ? "14px 18px" : "11px 18px",
+      borderRadius: 14, boxShadow: "0 6px 24px rgba(0,0,0,.28)",
+      fontSize: state === "error" ? 14 : 14.5, fontWeight: 600, lineHeight: 1.3,
+    }}>
+      <span style={{ fontSize: 20 }}>{cfg.icon}</span>
+      <span>{cfg.txt}</span>
+    </div>
+  );
+}
+
 /* ===========================================================================
    COMPAGNI — inserimento disponibilità (semplice, grande, leggibile)
    =========================================================================== */
@@ -380,8 +485,15 @@ function NotificationButton() {
   );
 }
 
-function CompagniView({ turni, people, availability, saveAvail, alerts, saveAlerts, published, assignments, crewsFor, galley }) {
-  const [personId, setPersonId] = useState("");
+function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, alerts, saveAlerts, published, assignments, crewsFor, galley, emojis, saveEmojis }) {
+  // ricorda chi sei tra un'apertura e l'altra (salvato nel browser di questo telefono)
+  const [personId, setPersonIdRaw] = useState(() => {
+    try { return localStorage.getItem("cv:me") || ""; } catch { return ""; }
+  });
+  const setPersonId = (id) => {
+    setPersonIdRaw(id);
+    try { if (id) localStorage.setItem("cv:me", id); else localStorage.removeItem("cv:me"); } catch {}
+  };
 
   const me = people.find((p) => p.id === personId);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
@@ -476,16 +588,11 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   };
 
   const setDispo = (turnoId, half, value, diurna = false) => {
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    if (!next[turnoId][personId]) next[turnoId][personId] = { pre: "ASSENTE", post: "ASSENTE" };
-    if (diurna) {
-      next[turnoId][personId].pre = value;
-      next[turnoId][personId].post = value;
-    } else {
-      next[turnoId][personId][half] = value;
-    }
-    saveAvail(next);
+    const cur = availability[turnoId]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
+    const row = { ...cur };
+    if (diurna) { row.pre = value; row.post = value; }
+    else { row[half] = value; }
+    saveMyAvail(turnoId, personId, row);
   };
 
   // scorciatoia: imposta entrambe le metà in un colpo
@@ -495,20 +602,17 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
       PRIMA: { pre: "ENTRAMBE", post: "ASSENTE" },
       DOPO: { pre: "ASSENTE", post: "ENTRAMBE" },
       TUTTO: { pre: "ENTRAMBE", post: "ENTRAMBE" },
+      FORSE: { pre: "FORSE", post: "FORSE" },
     }[mode];
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    const prev = next[turnoId][personId] || {};
-    next[turnoId][personId] = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "" };
-    saveAvail(next);
+    const prev = availability[turnoId]?.[personId] || {};
+    const row = { ...map, reason: prev.reason || "", note: prev.note || "", meal: prev.meal, diet: prev.diet || "", msg: prev.msg || "" };
+    saveMyAvail(turnoId, personId, row);
   };
 
   const setReasonField = (turnoId, field, value) => {
-    const next = JSON.parse(JSON.stringify(availability));
-    if (!next[turnoId]) next[turnoId] = {};
-    if (!next[turnoId][personId]) next[turnoId][personId] = { pre: "ASSENTE", post: "ASSENTE" };
-    next[turnoId][personId][field] = value;
-    saveAvail(next);
+    const cur = availability[turnoId]?.[personId] || { pre: "ASSENTE", post: "ASSENTE" };
+    const row = { ...cur, [field]: value };
+    saveMyAvail(turnoId, personId, row);
   };
 
   return (
@@ -523,6 +627,9 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                 turno={t}
                 sheet={buildSheet(t, people, assignments, availability, crewsFor, pById, alerts)}
                 message={published[t.id]?.message}
+                pubInfo={published[t.id]}
+                showCalendar
+                meName={me?.name}
               />
             </div>
           ))}
@@ -596,6 +703,11 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
 
           <div style={{ ...S.eyebrow, marginTop: 28, marginLeft: 4 }}>Passo 2 · Ciao {(me.cognome && me.name.startsWith(me.cognome) ? me.name.slice(me.cognome.length).trim().split(" ")[0] : me.name.split(" ")[0]) || me.name}!</div>
           <NotificationButton personId={personId} />
+          <EmojiPicker current={(emojis || {})[personId] || ""} onPick={(e) => {
+            const next = { ...(emojis || {}) };
+            if (e) next[personId] = e; else delete next[personId];
+            saveEmojis(next);
+          }} />
           {me.permesso && (
             <div style={{ ...S.bigCard, marginTop: 8, borderColor: "var(--c-post)" }}>
               <h2 style={{ ...S.h2, marginBottom: 6 }}>Sei in permesso 🌴</h2>
@@ -623,6 +735,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                 cur.pre === "ENTRAMBE" && cur.post === "ENTRAMBE" ? "TUTTO" :
                 cur.pre === "ENTRAMBE" && cur.post === "ASSENTE" ? "PRIMA" :
                 cur.pre === "ASSENTE" && cur.post === "ENTRAMBE" ? "DOPO" :
+                cur.pre === "FORSE" && cur.post === "FORSE" ? "FORSE" :
                 cur.pre === "ASSENTE" && cur.post === "ASSENTE" ? "ASSENTE" : null;
               return (
                 <div key={t.id} className="card-h" style={{ ...S.turnoCard, ...(isDiurna ? S.turnoCardDiurna : {}) }}>
@@ -641,6 +754,7 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                       ["TUTTO", "Tutto il turno"],
                       ["PRIMA", isDiurna ? "Solo mattina" : "Solo prima"],
                       ["DOPO", isDiurna ? "Solo pomeriggio" : "Solo dopo"],
+                      ["FORSE", "Forse"],
                       ["ASSENTE", "Assente"],
                     ].map(([mode, lbl]) => (
                       <button
@@ -654,10 +768,14 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                   </div>
                   )}
 
-                  <div style={S.halfRow}>
-                    {!hidePre && <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />}
-                    {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
-                  </div>
+                  {/* i bottoni veloci coprono il caso normale; i selettori per metà restano
+                      solo per chi ha una metà nascosta (es. "solo prima di mezzanotte") */}
+                  {!bothHalves && (
+                    <div style={S.halfRow}>
+                      {!hidePre && <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />}
+                      {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
+                    </div>
+                  )}
 
                   {(cur.pre === "ENTRAMBE" || cur.post === "ENTRAMBE") && (
                     <div style={S.mealBox}>
@@ -680,6 +798,12 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
                           onChange={(e) => setReasonField(t.id, "diet", e.target.value)}
                         />
                       )}
+                      <input
+                        style={{ ...S.slotSelect, width: "100%", maxWidth: "none", marginTop: 8 }}
+                        placeholder="Un messaggio al caposquadra? (facoltativo)"
+                        value={cur.msg || ""}
+                        onChange={(e) => setReasonField(t.id, "msg", e.target.value)}
+                      />
                     </div>
                   )}
 
@@ -752,21 +876,63 @@ function CompagniView({ turni, people, availability, saveAvail, alerts, saveAler
   );
 }
 
+const AVATAR_EMOJIS = [
+  "🦊","🐻","🐼","🐨","🦁","🐯","🐶","🐱","🦉","🐧","🦅","🐺","🦄","🐸","🐢","🐝","🦋","🐬","🐙","🦕",
+  "🐰","🐹","🐭","🐮","🐷","🐔","🦆","🦇","🦈","🐳","🐡","🦩","🦔","🐲","🦖","🦥","🦦","🐿️","🦨","🦂",
+  "🚑","⛰️","🏔️","🚴","🏃","🧗","🏊","⚽","🏀","🎾","🥊","🏋️","🧘","⛷️","🏂","🤸","🎯","🎳","🚵","⛹️",
+  "⚡","🔥","🌟","🍀","🎸","☕","🍕","🌈","💪","🛟","🩺","👑","🚀","🎨","🎧","📚","🌵","🌻","🍺","🍉",
+  "🌙","☀️","❄️","🍄","🧭","⚓","🎲","🃏","💎","🔦","🧩","🛴","🏆","🎺","🥁","🕹️","🎃","🧵","🪺","🍩",
+  "😎","🤙","😀","😂","😜","🤓","🥳","😇","🤠","🫡","🙃","😏","🤩","😴","🤖","👻","💀","🤡","👽","🥶",
+];
+
+function EmojiPicker({ current, onPick }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={S.emojiBox}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 30 }}>{current || "🙂"}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ink)" }}>La tua faccina</div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Scegline una: comparirà accanto al tuo nome ovunque.</div>
+        </div>
+        <button className="tap" style={S.emojiToggle} onClick={() => setOpen((o) => !o)}>
+          {open ? "Chiudi" : (current ? "Cambia" : "Scegli")}
+        </button>
+        {current && <button className="tap" style={S.emojiClear} onClick={() => onPick("")} title="Rimuovi">✕</button>}
+      </div>
+      {open && (
+        <div style={S.emojiGrid}>
+          {AVATAR_EMOJIS.map((e) => (
+            <button key={e} className="tap"
+              style={{ ...S.emojiCell, ...(current === e ? S.emojiCellOn : {}) }}
+              onClick={() => { onPick(e); setOpen(false); }}>{e}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HalfPicker({ label, value, onChange }) {
+  const opts = [
+    ["ASSENTE", "No", "var(--c-absent)"],
+    ["FORSE", "Forse", "#f0a830"],
+    ["ENTRAMBE", "Disponibile", "var(--c-both)"],
+  ];
   return (
     <div style={{ flex: 1 }}>
       <div style={S.halfLabel}>{label}</div>
       <div style={S.segGroup}>
-        {["ASSENTE", "ENTRAMBE"].map((opt) => (
+        {opts.map(([opt, txt, col]) => (
           <button
             key={opt}
             onClick={() => onChange(opt)}
             style={{
               ...S.segBtn,
-              ...(value === opt ? { ...S.segBtnOn, background: opt === "ENTRAMBE" ? "var(--c-both)" : "var(--c-absent)" } : {}),
+              ...(value === opt ? { ...S.segBtnOn, background: col } : {}),
             }}
           >
-            {opt === "ENTRAMBE" ? "Disponibile" : "No"}
+            {txt}
           </button>
         ))}
       </div>
@@ -846,8 +1012,7 @@ const REPORT_COLS = [
   { key: "H24", label: "H24" },
   { key: "gettone", label: "Gettone" },
   { key: "stazionamento", label: "Stazion." },
-  { key: "equi1", label: "1° equi" },
-  { key: "equi2", label: "2° equi", hot: true },
+  { key: "dopomezza", label: "Dopo mezza", hot: true },
   { key: "d3", label: "D3", hot: true },
   { key: "centralino", label: "Centralino", hot: true },
   { key: "esuberi", label: "Esuberi" },
@@ -855,7 +1020,7 @@ const REPORT_COLS = [
 const MESI_LABEL = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 
 function emptyRow() {
-  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, equi1: 0, equi2: 0, d3: 0, centralino: 0, esuberi: 0 };
+  return { presenze: 0, perc: 0, H24: 0, gettone: 0, stazionamento: 0, dopomezza: 0, d3: 0, centralino: 0, esuberi: 0 };
 }
 
 // id dei turni già presenti nello storico importato (per non ricontarli)
@@ -892,20 +1057,23 @@ function computeReportsFromApp(turni, assignments, pById, availability) {
     const assignedIds = new Set();
     const addCat = (id, cat) => {
       const cog = cognomeOf(id); if (!cog) return;
-      ensurePers(mk, cog)[cat] += 1; present.add(cog); assignedIds.add(id);
+      if (cat) ensurePers(mk, cog)[cat] += 1; // cat null = solo presenza (es. Lavaggio)
+      present.add(cog); assignedIds.add(id);
     };
-    // pre: [0]=H24, [1]=gettone, eventuale "Stazionamento"
+    // pre: [0]=H24, [1]=gettone, "Stazionamento" a sé, "Lavaggio" = solo presenza
     (a.pre || []).forEach((c, i) => {
-      const cat = (c.name === "Stazionamento") ? "stazionamento" : (i === 0 ? "H24" : "gettone");
+      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : (i === 0 ? "H24" : "gettone"));
       crewIds(c).forEach((id) => addCat(id, cat));
     });
-    // post: [0]=1equi, [1]=2equi
+    // post: tutti gli equipaggi del dopo mezzanotte contano in "dopomezza"; "Stazionamento"/"Lavaggio" a parte
     (a.post || []).forEach((c, i) => {
-      crewIds(c).forEach((id) => addCat(id, i === 0 ? "equi1" : "equi2"));
+      const cat = c.name === "Lavaggio" ? null : (c.name === "Stazionamento" ? "stazionamento" : "dopomezza");
+      crewIds(c).forEach((id) => addCat(id, cat));
     });
-    // D3: 2° equipaggio del post, solo se attivo
-    if ((a.f3d3 || "").includes("D3") && (a.post || []).length > 1) {
-      crewIds(a.post[1]).forEach((id) => { const cog = cognomeOf(id); if (cog) ensurePers(mk, cog).d3 += 1; });
+    // D3: le persone indicate come D3 (una o più, scelte dal capo)
+    const f3 = normF3D3(a);
+    if (f3.active) {
+      f3.d3ids.forEach((id) => { const cog = cognomeOf(id); if (cog) ensurePers(mk, cog).d3 += 1; });
     }
     // centralino
     const centr = a.centralino;
@@ -1034,12 +1202,14 @@ function ReportCapo({ turni, people, savePeople, reports, saveReports, imported,
             Somma lo storico importato e i turni che assegni in app (contati quando diventano passati). Dopomezza, centralino e D3 sono evidenziati: chi li fa va premiato. Le celle sono modificabili.
           </p>
         </div>
-        <button className="tap" style={S.primaryBtn} onClick={() => {
-          const msg = imported?.done
-            ? "Ricarica lo storico aggiornato dal file (squadra, turni in archivio, report e cambusa da maggio). Sovrascrive i dati storici con quelli del file. Procedere?"
-            : "Importa la squadra (26 persone con ruoli e vincoli), i turni storici in archivio, i report di maggio–luglio e lo storico cambuse. Sostituisce l'elenco attuale della squadra. Procedere?";
-          if (window.confirm(msg)) importStorico();
-        }}>{imported?.done ? "🔄 Ricarica storico" : "⬇️ Importa squadra e storico"}</button>
+        {!imported?.done && (
+          <button className="tap" style={S.primaryBtn} onClick={() => {
+            // doppia conferma: sovrascrive tutto. Da usare solo su un database vuoto/nuovo.
+            if (!window.confirm("ATTENZIONE: questo carica i dati di base e SOVRASCRIVE la squadra e i turni attuali. Va usato solo la primissima volta, su un'app vuota. Se l'app è già in uso, NON procedere. Continuare?")) return;
+            if (!window.confirm("Sei davvero sicura? Tutti i dati attuali verranno sostituiti con quelli di base. Questa azione non si annulla.")) return;
+            importStorico();
+          }}>⬇️ Importa dati iniziali</button>
+        )}
       </div>
 
       <div style={S.subnav}>
@@ -1186,6 +1356,96 @@ function ArchivioCapo({ turni, people, availability, assignments, crewsFor, publ
 }
 
 /* ---------- generazione PDF (via stampa browser, nessuna libreria) ---------- */
+// genera e scarica un evento calendario (.ics) per un turno.
+// Se passo meName, l'orario è quello dell'equipaggio in cui quella persona è stata messa.
+function downloadTurnoICS(turno, sheet, meName) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const d = turno.date;
+  const isDiurna = turno.kind === "diurna";
+
+  // helper: imposta un orario "HH:MM" su una data base, gestendo il passaggio a dopo mezzanotte
+  const hhmm = (base, str, isEnd, afterMidnight) => {
+    const m = /(\d{1,2})[:.](\d{2})/.exec(str || "");
+    const x = new Date(base);
+    if (!m) return null;
+    let h = +m[1], mm = +m[2];
+    // 00:00 di fine turno = mezzanotte del giorno dopo
+    if (afterMidnight || (isEnd && h === 0 && mm === 0)) x.setDate(x.getDate() + 1);
+    x.setHours(h, mm, 0, 0);
+    return x;
+  };
+
+  // trovo l'equipaggio (o gli equipaggi) in cui compare la persona, e prendo le fasce.
+  // Attenzione: i nomi nel foglio possono avere un'emoji davanti ("🦊 Dugoni Sergio"),
+  // quindi confronto togliendo eventuali emoji/simboli iniziali.
+  const pulisci = (s) => (s || "").replace(/^[^\p{L}]+/u, "").trim();
+  const meClean = pulisci(meName);
+  let start = null, end = null, mioEqui = "";
+  if (meClean) {
+    const fasce = [];
+    (sheet.halves || []).forEach((h) => {
+      h.crews.forEach((c) => {
+        const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => pulisci(s.name));
+        if (membri.includes(meClean)) {
+          // fascia tipo "20:00-00:00" o "00:00-07:30"; half.key pre = prima mezzanotte
+          const mm = /(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/.exec(c.fascia || "");
+          if (mm) {
+            const isPost = h.key === "post";
+            const s = hhmm(d, mm[1], false, isPost);
+            const e = hhmm(d, mm[2], true, isPost);
+            if (s && e) { fasce.push([s, e]); mioEqui = c.name; }
+          }
+        }
+      });
+    });
+    if (fasce.length) {
+      start = fasce.reduce((a, b) => (b[0] < a ? b[0] : a), fasce[0][0]);
+      end = fasce.reduce((a, b) => (b[1] > a ? b[1] : a), fasce[0][1]);
+    }
+  }
+  // se non trovo la persona in nessun equipaggio, uso l'orario pieno del turno
+  if (!start || !end) {
+    start = new Date(d); end = new Date(d);
+    if (isDiurna) { start.setHours(7, 0, 0, 0); end.setHours(18, 30, 0, 0); }
+    else { start.setHours(19, 30, 0, 0); end.setDate(end.getDate() + 1); end.setHours(7, 30, 0, 0); }
+  }
+
+  const fmt = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
+  const righe = [];
+  (sheet.halves || []).forEach((h) => {
+    h.crews.forEach((c) => {
+      const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => s.name);
+      if (membri.length) righe.push(`${c.name}: ${membri.join(", ")}`);
+    });
+  });
+  const desc = righe.join("\\n") || "Equipaggio da definire";
+  const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde${mioEqui ? ` (${mioEqui})` : ""}`;
+  // UID fisso per turno+persona: così riaggiungendolo aggiorna invece di duplicare
+  const who = meName ? "-" + meName.replace(/[^a-zA-Z0-9]/g, "") : "";
+  const uid = `turno-${turno.id}${who}@croce-verde.vercel.app`;
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//TurniSquadra//IT",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${fmt(new Date())}`,
+    `DTSTART:${fmt(start)}`,
+    `DTEND:${fmt(end)}`,
+    `SUMMARY:${titolo}`,
+    `DESCRIPTION:${desc}`,
+    "LOCATION:Croce Verde APM Milano",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `turno-${turno.id}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function downloadSheetPDF(turno, sheet, message) {
   const esc = (s) => String(s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const tipo = turno.kind === "diurna" ? "DIURNA" : "NOTTURNA";
@@ -1293,13 +1553,16 @@ function downloadSheetPDF(turno, sheet, message) {
     .note .nr { color:#e2574c; }
     .msg { margin-top:14px; padding:12px 14px; background:#eef8f1; border-left:4px solid #1fae5a; font-style:italic; font-size:13.5px; border-radius:8px; }
     .foot { margin-top:18px; font-size:10px; color:#9aa7b3; text-align:center; }
+    .f3badge { background:#efeafc; border:1px solid #d6c9f5; border-radius:10px; padding:9px 14px; font-size:12.5px; margin-bottom:14px; }
   </style></head><body>
     <div class="top">${LOGO}<div class="tt"><div class="b">Croce Verde · Milano</div><h1>${titolo}</h1><div class="sm">Foglio equipaggi</div></div></div>
+    ${sheet.f3active ? `<div class="f3badge">🌗 <b>Notte divisa F3 / D3</b> — chi fa F3 stacca alle 3, chi fa D3 entra dopo le 3${sheet.d3names && sheet.d3names.length ? `. D3: ${sheet.d3names.map(esc).join(", ")}` : ""}</div>` : ""}
     ${crewsHtml}
     ${centralHtml ? `<div class="sect">☎️ Centralino</div>${centralHtml}` : ""}
     ${cambusaHtml}
     ${mealHtml}
     ${noteHtml}
+    ${sheet.capoNote && sheet.capoNote.trim() ? `<div class="msg" style="border-left-color:#f0a830;background:#fdf6e3">📝 ${esc(sheet.capoNote)}</div>` : ""}
     ${message && message.trim() ? `<div class="msg">${esc(message)}</div>` : ""}
     <div class="foot">Generato da Turni Squadra · Croceverde APM · ${new Date().toLocaleDateString("it-IT")}</div>
   </body></html>`;
@@ -1320,6 +1583,8 @@ function eligibleFor(person, turnoId, half, availability) {
   return v === "ENTRAMBE"; // solo chi è realmente disponibile in quella metà
 }
 function canRole(person, role) {
+  // gli allievi possono stare SOLO al centralino, mai negli equipaggi
+  if (person.roles.includes("allievo")) return false;
   if (role === "autista") return person.roles.includes("autista");
   if (role === "capo") return person.roles.includes("capo");
   // soccorritore semplice: chi NON è autista né capo, oppure forzato
@@ -1357,13 +1622,13 @@ function autoAssign(turni, allPeople, availability, crewsFor) {
           }
           return null;
         };
-        crew.autista = pick((p) => p.roles.includes("autista"));
-        crew.capo = pick((p) => p.roles.includes("capo"));
-        // due soccorritori: preferisci chi NON è autista/capo
-        let s1 = pick((p) => !p.roles.includes("autista") && !p.roles.includes("capo"));
-        if (!s1) s1 = pick(() => true); // caso particolare: usa chiunque
-        let s2 = pick((p) => !p.roles.includes("autista") && !p.roles.includes("capo"));
-        if (!s2) s2 = pick(() => true);
+        crew.autista = pick((p) => p.roles.includes("autista") && !p.roles.includes("allievo"));
+        crew.capo = pick((p) => p.roles.includes("capo") && !p.roles.includes("allievo"));
+        // due soccorritori: preferisci chi NON è autista/capo; mai allievi
+        let s1 = pick((p) => !p.roles.includes("allievo") && !p.roles.includes("autista") && !p.roles.includes("capo"));
+        if (!s1) s1 = pick((p) => !p.roles.includes("allievo"));
+        let s2 = pick((p) => !p.roles.includes("allievo") && !p.roles.includes("autista") && !p.roles.includes("capo"));
+        if (!s2) s2 = pick((p) => !p.roles.includes("allievo"));
         crew.soccorritori = [s1, s2].filter(Boolean);
         crews.push(crew);
       }
@@ -1443,19 +1708,53 @@ function extractCentralino(a) {
   if (Array.isArray(c)) return c.filter(Boolean);
   return [...(c.pre?.people || []), ...(c.post?.people || [])].filter(Boolean);
 }
-// D3 = chi è nel 2° equipaggio del dopo mezzanotte, MA solo se l'opzione D3 è attiva
+// normalizza f3d3: gestisce sia il vecchio formato stringa ("F3","F3/D3") sia il nuovo oggetto {active, d3ids}
+function normF3D3(a) {
+  const f = a?.f3d3;
+  if (!f) return { active: false, d3ids: [] };
+  if (typeof f === "string") {
+    if (f.includes("D3")) {
+      const crew2 = a?.post?.[1];
+      const d3ids = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
+      return { active: true, d3ids };
+    }
+    if (f.includes("F3")) return { active: true, d3ids: [] };
+    return { active: false, d3ids: [] };
+  }
+  return { active: !!f.active, d3ids: f.d3ids || [] };
+}
+// D3 = le persone indicate come D3 (chi entra dopo le 3)
 function extractD3(a) {
-  const f = (a?.f3d3 || "");
-  if (!f.includes("D3")) return [];
-  const crew2 = a?.post?.[1];
-  if (!crew2) return [];
-  return [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean);
+  const f = normF3D3(a);
+  return f.active ? (f.d3ids || []) : [];
 }
 function extractGalleyFromAssign(a) { return []; } // la cambusa sta nel galley, gestita a parte
 
 // conteggio generico su tutti i turni (storico + generati) per un estrattore su assignments
 function activityCounts(turni, assignments, extractor) {
   const order = galleyOrder(turni);
+  const count = {}; const lastIdx = {};
+  order.forEach((t, idx) => {
+    extractor(assignments[t.id]).forEach((id) => {
+      count[id] = (count[id] || 0) + 1;
+      lastIdx[id] = idx;
+    });
+  });
+  return { order, count, lastIdx };
+}
+
+// conteggio di un'attività negli ULTIMI mesi su TUTTI i turni salvati (storico incluso),
+// ricavando la data dall'id del turno. Serve a mostrare un totale recente coerente.
+function activityCountsRecent(assignments, extractor, months = 3) {
+  const limit = new Date();
+  limit.setMonth(limit.getMonth() - months);
+  limit.setHours(0, 0, 0, 0);
+  // ordino i turni per data (dall'id)
+  const entries = Object.keys(assignments || {})
+    .map((id) => ({ id, date: parseISO(id.endsWith(":diurna") ? id.slice(0, -":diurna".length) : id) }))
+    .filter((e) => e.date >= limit)
+    .sort((a, b) => a.date - b.date);
+  const order = entries.map((e) => ({ id: e.id, date: e.date }));
   const count = {}; const lastIdx = {};
   order.forEach((t, idx) => {
     extractor(assignments[t.id]).forEach((id) => {
@@ -1536,9 +1835,20 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
   const [open, setOpen] = useState(turni[0]?.id);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
 
-  const runAuto = () => {
-    saveAssign(autoAssign(turni, people, availability, crewsFor));
-    saveGalley(autoGalley(turni, people, availability, galley));
+  // proposta automatica SOLO per un turno, senza toccare gli altri
+  const runAutoOne = (turnoId) => {
+    const t = turni.find((x) => x.id === turnoId);
+    if (!t) return;
+    // avviso se quel turno ha già qualcuno assegnato (per non sovrascrivere senza volerlo)
+    const a = assignments[turnoId];
+    const hasData = a && ["pre", "post"].some((half) => (a[half] || []).some((c) => c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean))));
+    if (hasData && !window.confirm("Questo turno ha già degli equipaggi compilati. La proposta automatica li sovrascrive (solo per questo turno). Procedere?")) return;
+    // calcolo la proposta solo per questo turno e la innesto, lasciando intatti gli altri
+    const oneAssign = autoAssign([t], people, availability, crewsFor);
+    // la cambusa la calcolo sul giro completo (per rispettare la rotazione) ma applico solo questo turno
+    const fullGalley = autoGalley(turni, people, availability, galley);
+    saveAssign({ ...assignments, [turnoId]: oneAssign[turnoId] });
+    saveGalley({ ...galley, [turnoId]: fullGalley[turnoId] });
   };
 
   const setCrews = (turnoId, half, n) => {
@@ -1569,9 +1879,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
       <div style={S.toolbar}>
         <div>
           <h2 style={{ ...S.h2, margin: 0 }}>Turni & equipaggi</h2>
-          <p style={{ ...S.helper, margin: "2px 0 0" }}>Imposta quanti equipaggi servono per ogni metà (default {EQUIPAGGI_PER_META}+{EQUIPAGGI_PER_META}). Ogni equipaggio è autista + capo + 2 soccorritori.</p>
+          <p style={{ ...S.helper, margin: "2px 0 0" }}>Imposta quanti equipaggi servono per ogni metà (default {EQUIPAGGI_PER_META}+{EQUIPAGGI_PER_META}). Ogni equipaggio è autista + capo + 2 soccorritori. La proposta automatica è dentro ogni turno, così non tocca gli altri.</p>
         </div>
-        <button className="tap" style={S.primaryBtn} onClick={runAuto}>⚡ Genera proposta automatica</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1601,6 +1910,11 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                       ☀️ Con questo turno c'è anche la <b>diurna di {t.diurnaLabel}</b> (lo trovi come turno separato qui in elenco).
                     </div>
                   )}
+
+                  <div style={{ marginBottom: 14 }}>
+                    <button className="tap" style={S.primaryBtn} onClick={() => runAutoOne(t.id)}>⚡ Proposta automatica per questo turno</button>
+                    <p style={{ ...S.helper, margin: "6px 0 0" }}>Riempie gli equipaggi e la cambusa solo di questo turno, in base alle disponibilità. Non tocca gli altri turni.</p>
+                  </div>
 
                   {HALF_KEYS.map((half) => {
                     const nCrews = crewsFor(t.id, half);
@@ -1654,6 +1968,8 @@ function TurniCapo({ turni, people, availability, assignments, saveAssign, galle
                   <AbsentDetails turno={t} people={people} availability={availability} />
 
                   <F3D3Toggle turno={t} turni={turni} assignments={assignments} saveAssign={saveAssign} pById={pById} />
+
+                  <CapoNoteEditor turno={t} assignments={assignments} saveAssign={saveAssign} />
 
                   <div style={S.alertControlRow}>
                     <button
@@ -1771,7 +2087,11 @@ function PublishBlock({ turno, people, pById, availability, assignments, crewsFo
   };
 
   const publish = () => {
-    const next = { ...published, [turno.id]: { at: new Date().toISOString(), message: msg } };
+    const already = !!published[turno.id];           // era già pubblicato prima?
+    const next = {
+      ...published,
+      [turno.id]: { at: new Date().toISOString(), message: msg, republished: already },
+    };
     savePublished(next);
     shareWhatsApp(buildTextSummary());
   };
@@ -2002,20 +2322,24 @@ function slotName(v, pById) {
   if (!v) return null;
   if (isExt(v)) { const e = parseExt(v); return { name: e.name, ext: true, squad: e.squad, note: e.note }; }
   const p = pById[v];
-  return p ? { name: p.name, ext: false } : null;
+  return p ? { name: p.emoji ? `${p.emoji} ${p.name}` : p.name, ext: false } : null;
 }
 
 // costruisce i dati del foglio per un turno: equipaggi + assenti raggruppati per motivo + non risposto
 function buildSheet(turno, people, assignments, availability, crewsFor, pById, alerts) {
   const halfDefs = HALF_KEYS.map((key) => ({ key, label: halfLabel(turno, key) }));
   const halves = halfDefs.map((h) => {
-    // numero equipaggi: il massimo tra quelli previsti (config) e quelli realmente salvati nei dati
-    const configured = crewsFor(turno.id, h.key);
-    const saved = (assignments[turno.id]?.[h.key] || []).length;
-    const nCrews = Math.max(configured, saved);
+    const savedCrews = assignments[turno.id]?.[h.key] || [];
+    // un equipaggio è "reale" solo se ha almeno UNA persona assegnata.
+    // (nome/orario da soli non bastano: un equipaggio aggiunto e poi svuotato non deve comparire)
+    const isReal = (c) => !!(c && (c.autista || c.capo || (c.soccorritori || []).some(Boolean)));
+    let lastReal = -1;
+    savedCrews.forEach((c, i) => { if (isReal(c)) lastReal = i; });
+    let nCrews = lastReal + 1;
+    if (nCrews === 0) nCrews = crewsFor(turno.id, h.key);
     const crews = [];
     for (let i = 0; i < nCrews; i++) {
-      const c = assignments[turno.id]?.[h.key]?.[i] || { autista: null, capo: null, soccorritori: [], size: 4 };
+      const c = savedCrews[i] || { autista: null, capo: null, soccorritori: [], size: 4 };
       const size = c.size || 4;
       const need = size - 2;
       crews.push({
@@ -2067,15 +2391,19 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
   // persone in permesso (per la sezione Note)
   const permessi = people.filter((p) => p.permesso).map((p) => p.name).sort((a, b) => a.localeCompare(b));
 
-  // mappa nome-rimpiazzo -> chi l'ha segnalato (dai rimpiazzi proposti dagli assenti)
+  // mappa nome-rimpiazzo -> chi rimpiazza: sia dai rimpiazzi segnalati dagli assenti, sia dal campo rimp del turno
   const resolved = alerts?.[turno.id]?.resolved || {};
   const proposerByName = {};
   Object.entries(resolved).forEach(([pid, r]) => {
     if (r.sub && r.sub.trim()) proposerByName[r.sub.trim().toLowerCase()] = pById[pid]?.name || "";
   });
+  // campo rimp salvato sul turno: { "Carrer": "Di Liberto", ... }
+  const rimpMap = assignments[turno.id]?.rimp || {};
+  Object.entries(rimpMap).forEach(([ext, chi]) => {
+    if (ext && chi) proposerByName[ext.trim().toLowerCase()] = chi;
+  });
 
-  // esterni negli equipaggi: se corrispondono a un rimpiazzo segnalato -> "(per Tizio)",
-  // altrimenti sono esterni aggiunti a mano, con eventuale nota.
+  // esterni/rimpiazzi negli equipaggi: se sappiamo chi rimpiazzano -> "(per Tizio)", altrimenti nota/squadra
   const rimpiazzi = [];
   halves.forEach((h) => h.crews.forEach((c) => {
     [c.autista, c.capo, ...c.soccorritori].forEach((s) => {
@@ -2130,7 +2458,15 @@ function buildSheet(turno, people, assignments, availability, crewsFor, pById, a
     }
   });
 
-  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets };
+  // divisione notte F3/D3 (per mostrarla nel foglio/archivio)
+  const f3 = normF3D3(assignments[turno.id]);
+  const nameOf = (id) => (pById[id]?.name) || (typeof id === "string" && id.startsWith("ext:") ? id.slice(4).split("|")[0] : "");
+  const d3names = f3.active ? f3.d3ids.map(nameOf).filter(Boolean) : [];
+
+  // note libere del capo + rimpiazzi con "di chi" (dal campo rimp o dal nome interno rimpiazzato)
+  const capoNote = assignments[turno.id]?.note || "";
+
+  return { halves, byReason, absentDetails, notResponded, centralino, permessi, rimpiazzi, esuberi, mealCount, diets, f3active: f3.active, d3names, capoNote };
 }
 
 // nome di default per un equipaggio (H24, Gettone 1, ...) — modificabile dal capo
@@ -2147,7 +2483,7 @@ function defaultFascia(turno, half) {
 }
 
 // vista del foglio (usata in-app per i compagni)
-function SheetView({ turno, sheet, message }) {
+function SheetView({ turno, sheet, message, pubInfo, showCalendar, meName }) {
   const renderSlot = (role, s) =>
     s ? (
       <div key={role + s.name} style={S.sheetSlot}>
@@ -2166,6 +2502,25 @@ function SheetView({ turno, sheet, message }) {
   return (
     <div style={S.sheet}>
       <div style={S.sheetTitle}>Equipaggi · <span style={{ textTransform: "capitalize" }}>{turno.label} {turno.date.getFullYear()}</span></div>
+
+      {showCalendar && (
+        <div style={{ marginBottom: 12 }}>
+          {pubInfo?.republished && (
+            <div style={S.calWarn}>🔄 Turno aggiornato: se l'avevi già messo in calendario, riaggiungilo per avere la versione giusta.</div>
+          )}
+          <button className="tap" style={S.calBtn} onClick={() => downloadTurnoICS(turno, sheet, meName)}>📅 Aggiungi al calendario</button>
+          <span style={S.calHint}>{meName ? "Orario in base al tuo equipaggio. " : ""}Se il turno cambia, dovrai riaggiungerlo.</span>
+        </div>
+      )}
+
+      {sheet.f3active && (
+        <div style={S.f3d3Badge}>
+          🌗 Notte divisa <b>F3 / D3</b> — chi fa F3 stacca alle 3, chi fa D3 entra dopo le 3.
+          {sheet.d3names && sheet.d3names.length > 0 && (
+            <div style={{ marginTop: 4, fontSize: 12.5 }}>Ha fatto il <b>D3</b>: {sheet.d3names.join(", ")}</div>
+          )}
+        </div>
+      )}
 
       {sheet.halves.map((h) => (
         <div key={h.key} style={{ marginBottom: 16 }}>
@@ -2228,6 +2583,10 @@ function SheetView({ turno, sheet, message }) {
             <div style={S.sheetCentralino}>⚠️ Diete/intolleranze: {sheet.diets.join(" · ")}</div>
           )}
         </div>
+      )}
+
+      {sheet.capoNote && sheet.capoNote.trim() && (
+        <div style={{ ...S.sheetMsg, borderLeftColor: "#f0a830", background: "rgba(240,168,48,.08)" }}>📝 {sheet.capoNote}</div>
       )}
 
       {message && message.trim() && (
@@ -2305,65 +2664,115 @@ function SlotSelect({ label, icon, value, options, onChange, warnDoubleRole, sub
   );
 }
 
-/* ---------- toggle F3/D3 (notte divisa in due, turno "sfortunato") ---------- */
+/* ---------- toggle F3/D3 (notte divisa): scegli CHI fa il D3 ---------- */
 function F3D3Toggle({ turno, turni, assignments, saveAssign, pById }) {
-  // le diurne non hanno il problema F3/D3: nessun controllo
-  if (turno.kind === "diurna") return null;
+  if (turno.kind === "diurna") return null; // le diurne non hanno F3/D3
 
-  const cur = assignments[turno.id]?.f3d3 || "";
-  const isActive = cur.includes("D3") || cur.includes("F3");
-  const toggle = () => {
+  const cur = normF3D3(assignments[turno.id]);
+  const isActive = cur.active;
+  const d3set = new Set(cur.d3ids);
+
+  const save = (active, d3ids) => {
     const next = JSON.parse(JSON.stringify(assignments));
     if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
-    next[turno.id].f3d3 = isActive ? "" : "F3/D3"; // un unico interruttore: divide la notte in F3 + D3
+    next[turno.id].f3d3 = { active, d3ids };
     saveAssign(next);
   };
+  const toggle = () => save(!isActive, isActive ? [] : cur.d3ids);
+  const togglePerson = (pid) => {
+    const s = new Set(d3set);
+    s.has(pid) ? s.delete(pid) : s.add(pid);
+    save(true, [...s]);
+  };
 
-  // hotness D3 su tutti i turni (chi ha fatto il D3 = 2° equipaggio post nei turni con D3 attivo)
+  // conteggio D3 degli ultimi 6 mesi su tutti i turni (storico incluso) → coerente e recente
   const { order, count, lastIdx } = useMemo(
-    () => activityCounts(turni, assignments, extractD3),
-    [turni, assignments]
+    () => activityCountsRecent(assignments, extractD3, 6), [assignments]
   );
-  // chi è nel 2° equipaggio del dopo mezzanotte (quelli che faranno il D3)
-  const crew2 = assignments[turno.id]?.post?.[1];
-  const d3people = crew2 ? [crew2.autista, crew2.capo, ...(crew2.soccorritori || [])].filter(Boolean) : [];
+
+  // candidati D3 = tutte le persone assegnate dopo mezzanotte (tutti gli equipaggi post)
+  const postCrews = assignments[turno.id]?.post || [];
+  const candidati = [];
+  postCrews.forEach((c, ci) => {
+    [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).forEach((pid) => {
+      if (!candidati.find((x) => x.pid === pid)) candidati.push({ pid, crew: c.name || `Equi ${ci + 1}` });
+    });
+  });
+  const selezionaCrew = (ci) => {
+    const c = postCrews[ci]; if (!c) return;
+    const ids = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean);
+    save(true, ids);
+  };
 
   return (
     <div style={S.f3d3Box}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={S.f3d3Label}>🌗 Notte divisa in F3 / D3 (turno sfortunato):</span>
-        <button className="tap"
-          style={{ ...S.f3d3Btn, ...(isActive ? S.f3d3BtnOn : {}) }}
-          onClick={toggle}>
+        <span style={S.f3d3Label}>🌗 Notte divisa in F3 / D3:</span>
+        <button className="tap" style={{ ...S.f3d3Btn, ...(isActive ? S.f3d3BtnOn : {}) }} onClick={toggle}>
           {isActive ? "✓ Attiva — disattiva" : "Attiva divisione F3/D3"}
         </button>
       </div>
       {isActive && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 6 }}>
-            La notte è divisa: il 1° equipaggio esce fino alle 3 (F3), il <b>2° equipaggio del dopo mezzanotte</b> esce dopo le 3 (D3). Controlla che il D3 non tocchi sempre ai soliti:
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>
+            Chi fa <b>F3</b> stacca alle 3, chi fa <b>D3</b> entra dopo le 3. Spunta chi ha fatto il <b>D3</b> (puoi selezionarne uno solo o un equipaggio intero):
           </div>
-          {d3people.length === 0 ? (
-            <div style={S.helper}>Assegna prima il 2° equipaggio del dopo mezzanotte.</div>
+          {postCrews.length > 1 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {postCrews.map((c, ci) => (
+                <button key={ci} className="tap" style={S.f3d3QuickBtn} onClick={() => selezionaCrew(ci)}>
+                  Tutto il {c.name || `Equi ${ci + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {candidati.length === 0 ? (
+            <div style={S.helper}>Assegna prima gli equipaggi del dopo mezzanotte.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {d3people.map((pid) => {
+              {candidati.map(({ pid, crew }) => {
                 const nm = pById[pid]?.name
                   || (typeof pid === "string" && pid.startsWith("ext:") ? pid.slice(4).split("|")[0] : null)
                   || "— (da riassegnare) —";
+                const sel = d3set.has(pid);
                 const h = hotnessFrom(order, lastIdx, count, turno.id, pid);
                 return (
-                  <div key={pid} style={S.d3Row}>
-                    <span style={{ flex: 1 }}>{nm}</span>
-                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 fatti: <b>{count[pid] || 0}</b></span>
+                  <button key={pid} className="tap" onClick={() => togglePerson(pid)}
+                    style={{ ...S.d3Row, cursor: "pointer", border: sel ? "1.5px solid #7c5cf0" : "1px solid transparent", background: sel ? "rgba(124,92,240,.14)" : "var(--panel-2)" }}>
+                    <span style={{ width: 20 }}>{sel ? "✓" : "○"}</span>
+                    <span style={{ flex: 1, textAlign: "left" }}>{nm} <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>· {crew}</span></span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>D3 (ultimi 6 mesi): <b>{count[pid] || 0}</b></span>
                     <HotDot h={h} count={count[pid] || 0} />
-                  </div>
+                  </button>
                 );
               })}
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- nota libera del caposquadra sul turno ---------- */
+function CapoNoteEditor({ turno, assignments, saveAssign }) {
+  const note = assignments[turno.id]?.note || "";
+  const setNote = (v) => {
+    const next = JSON.parse(JSON.stringify(assignments));
+    if (!next[turno.id]) next[turno.id] = { pre: [], post: [] };
+    next[turno.id].note = v;
+    saveAssign(next);
+  };
+  return (
+    <div style={S.capoNoteBox}>
+      <div style={S.f3d3Label}>📝 Note del caposquadra <span style={{ fontWeight: 400, fontSize: 12, color: "var(--ink-soft)" }}>(compaiono sul foglio e nel PDF)</span></div>
+      <textarea
+        style={S.capoNoteArea}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Es. rimpiazzo di un esterno, avvisi, chi chiude la sede…"
+        rows={2}
+      />
     </div>
   );
 }
@@ -2385,20 +2794,78 @@ function AbsentDetails({ turno, people, availability }) {
     return out.sort((x, y) => x.name.localeCompare(y.name));
   }, [turno.id, people, availability]);
 
-  if (rows.length === 0) return null;
+  // messaggi lasciati da chi è disponibile
+  const messaggi = useMemo(() => {
+    const out = [];
+    people.forEach((p) => {
+      const a = availability[turno.id]?.[p.id];
+      if (!a) return;
+      const disponibile = a.pre === "ENTRAMBE" || a.post === "ENTRAMBE";
+      if (disponibile && a.msg && a.msg.trim()) out.push({ name: p.name, msg: a.msg.trim() });
+    });
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }, [turno.id, people, availability]);
+
+  // chi ha messo "Forse" (incerto): visibile al capo ma non assegnato in automatico
+  const forse = useMemo(() => {
+    const out = [];
+    people.forEach((p) => {
+      if (p.permesso) return;
+      const a = availability[turno.id]?.[p.id];
+      if (!a) return;
+      const haForse = a.pre === "FORSE" || a.post === "FORSE";
+      if (haForse) {
+        const quale = a.pre === "FORSE" && a.post === "FORSE" ? "" : (a.pre === "FORSE" ? " (prima mezzanotte)" : " (dopo mezzanotte)");
+        out.push({ name: p.name, quale });
+      }
+    });
+    return out.sort((x, y) => x.name.localeCompare(y.name));
+  }, [turno.id, people, availability]);
+
+  if (rows.length === 0 && messaggi.length === 0 && forse.length === 0) return null;
 
   return (
     <div style={S.absDetailBox}>
-      <div style={S.galleyTitle}>🙅 Assenti e motivi <span style={S.absDetailPriv}>(solo tu, non finisce nel PDF/WhatsApp)</span></div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {rows.map((r) => (
-          <div key={r.name} style={S.absDetailRow}>
-            <span style={{ fontWeight: 600 }}>{r.name}</span>
-            <span style={S.absDetailReason}>{MOTIVI[r.reason].icon} {MOTIVI[r.reason].label}</span>
-            {r.note && <span style={S.absDetailNote}>“{r.note}”</span>}
+      {rows.length > 0 && (
+        <>
+          <div style={S.galleyTitle}>🙅 Assenti e motivi <span style={S.absDetailPriv}>(solo tu, non finisce nel PDF/WhatsApp)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {rows.map((r) => (
+              <div key={r.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{r.name}</span>
+                <span style={S.absDetailReason}>{MOTIVI[r.reason].icon} {MOTIVI[r.reason].label}</span>
+                {r.note && <span style={S.absDetailNote}>“{r.note}”</span>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
+      {forse.length > 0 && (
+        <div style={{ marginTop: (rows.length > 0 || messaggi.length > 0) ? 12 : 0 }}>
+          <div style={S.galleyTitle}>🤔 Forse (incerti) <span style={S.absDetailPriv}>(non assegnati in automatico)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {forse.map((f) => (
+              <div key={f.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{f.name}</span>
+                {f.quale && <span style={S.absDetailNote}>{f.quale}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {messaggi.length > 0 && (
+        <div style={{ marginTop: (rows.length > 0 || forse.length > 0) ? 12 : 0 }}>
+          <div style={S.galleyTitle}>💬 Messaggi dai disponibili <span style={S.absDetailPriv}>(solo tu)</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {messaggi.map((m) => (
+              <div key={m.name} style={S.absDetailRow}>
+                <span style={{ fontWeight: 600 }}>{m.name}</span>
+                <span style={S.absDetailNote}>“{m.msg}”</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2583,35 +3050,37 @@ function CentralinoEditor({ turno, turni, people, pById, availability, assignmen
 /* ===========================================================================
    PERSONE — gestione squadra
    =========================================================================== */
-function PersoneCapo({ people, savePeople }) {
+function PersoneCapo({ people, savePeople, savePeopleMerge }) {
   const [name, setName] = useState("");
-  const [roles, setRoles] = useState({ autista: false, capo: false });
+  const [roles, setRoles] = useState({ autista: false, capo: false, allievo: false });
+  // usa il salvataggio sicuro se disponibile, altrimenti quello classico
+  const mut = savePeopleMerge || ((fn) => savePeople(fn(people)));
 
   const add = () => {
     if (!name.trim()) return;
     const r = ["soccorritore"];
     if (roles.autista) r.push("autista");
     if (roles.capo) r.push("capo");
+    if (roles.allievo) r.push("allievo");
     const id = "p" + Date.now();
-    savePeople([...people, { id, name: name.trim(), roles: r }]);
-    setName(""); setRoles({ autista: false, capo: false });
+    const nuovo = { id, name: name.trim(), roles: r };
+    mut((list) => [...list, nuovo]);
+    setName(""); setRoles({ autista: false, capo: false, allievo: false });
   };
   const toggleRole = (pid, role) => {
-    savePeople(
-      people.map((p) => {
-        if (p.id !== pid) return p;
-        const has = p.roles.includes(role);
-        let r = has ? p.roles.filter((x) => x !== role) : [...p.roles, role];
-        if (!r.includes("soccorritore")) r.push("soccorritore");
-        return { ...p, roles: r };
-      })
-    );
+    mut((list) => list.map((p) => {
+      if (p.id !== pid) return p;
+      const has = p.roles.includes(role);
+      let r = has ? p.roles.filter((x) => x !== role) : [...p.roles, role];
+      if (!r.includes("soccorritore")) r.push("soccorritore");
+      return { ...p, roles: r };
+    }));
   };
-  const remove = (pid) => savePeople(people.filter((p) => p.id !== pid));
+  const remove = (pid) => mut((list) => list.filter((p) => p.id !== pid));
   const togglePermesso = (pid) =>
-    savePeople(people.map((p) => (p.id === pid ? { ...p, permesso: !p.permesso } : p)));
+    mut((list) => list.map((p) => (p.id === pid ? { ...p, permesso: !p.permesso } : p)));
   const toggleHide = (pid, slot) =>
-    savePeople(people.map((p) => {
+    mut((list) => list.map((p) => {
       if (p.id !== pid) return p;
       const hide = { ...(p.hide || {}) };
       hide[slot] = !hide[slot];
@@ -2633,6 +3102,9 @@ function PersoneCapo({ people, savePeople }) {
         <label style={S.checkPill}>
           <input type="checkbox" checked={roles.capo} onChange={(e) => setRoles((s) => ({ ...s, capo: e.target.checked }))} /> Capo
         </label>
+        <label style={S.checkPill}>
+          <input type="checkbox" checked={roles.allievo} onChange={(e) => setRoles((s) => ({ ...s, allievo: e.target.checked }))} /> Allievo
+        </label>
         <button className="tap" style={S.primaryBtn} onClick={add}>Aggiungi</button>
       </div>
 
@@ -2644,6 +3116,7 @@ function PersoneCapo({ people, savePeople }) {
               <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                 <RolePill on={p.roles.includes("autista")} onClick={() => toggleRole(p.id, "autista")}>🚑 Autista</RolePill>
                 <RolePill on={p.roles.includes("capo")} onClick={() => toggleRole(p.id, "capo")}>⭐ Capo</RolePill>
+                <RolePill on={p.roles.includes("allievo")} onClick={() => toggleRole(p.id, "allievo")}>🎓 Allievo</RolePill>
                 <RolePill on={p.permesso} onClick={() => togglePermesso(p.id)}>🌴 Permesso</RolePill>
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
@@ -2679,13 +3152,13 @@ function Classifiche({ turni, people, assignments, galley, reports, availability
     const mergedR = mergeReports(reports || {}, auto);
     const byCognome = {};
     people.forEach((p) => {
-      byCognome[cognomeOf(p)] = { name: p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
+      byCognome[cognomeOf(p)] = { name: p.emoji ? `${p.emoji} ${p.name}` : p.name, id: p.id, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
     });
     Object.values(mergedR).forEach((r) => {
       Object.entries(r.persone || {}).forEach(([cog, v]) => {
         if (!byCognome[cog]) byCognome[cog] = { name: cog, id: null, presenze: 0, dopomezza: 0, centralino: 0, d3: 0, galley: 0 };
         byCognome[cog].presenze += v.presenze || 0;
-        byCognome[cog].dopomezza += (v.equi1 || 0) + (v.equi2 || 0);
+        byCognome[cog].dopomezza += (v.dopomezza || 0) + (v.equi1 || 0) + (v.equi2 || 0);
         byCognome[cog].centralino += v.centralino || 0;
         byCognome[cog].d3 += v.d3 || 0;
       });
@@ -2950,6 +3423,12 @@ const S = {
   mealPill: { background: "var(--c-both)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 20 },
   cambusaLine: { marginTop: 12, fontSize: 13, color: "var(--ink-soft)", background: "rgba(240,180,41,.08)", borderRadius: 8, padding: "8px 12px" },
   cambusaLineMe: { color: "#9a6a00", background: "rgba(240,180,41,.20)", fontWeight: 600 },
+  emojiBox: { marginTop: 12, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 14, padding: 14 },
+  emojiToggle: { background: "var(--c-both)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 700 },
+  emojiClear: { background: "var(--panel)", color: "var(--ink-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 11px", fontSize: 13 },
+  emojiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))", gap: 6, marginTop: 12 },
+  emojiCell: { fontSize: 24, padding: "6px 0", borderRadius: 10, border: "1px solid var(--line)", background: "var(--panel)", cursor: "pointer" },
+  emojiCellOn: { background: "rgba(31,174,90,.18)", borderColor: "var(--c-both)" },
   mealRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" },
   mealQ: { fontSize: 14, fontWeight: 600, color: "var(--ink)" },
   mealBtn: { padding: "7px 16px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel-2)", color: "var(--ink-soft)", fontSize: 14, fontWeight: 700 },
@@ -2987,6 +3466,9 @@ const S = {
   f3d3Btn: { background: "var(--panel-2)", color: "var(--ink-soft)", border: "1px solid var(--line)", padding: "5px 10px", borderRadius: 8, fontSize: 12 },
   f3d3BtnOn: { background: "#7c5cf0", color: "#fff", borderColor: "#7c5cf0", fontWeight: 700 },
   f3d3Active: { fontSize: 11, color: "#9b78f0", fontWeight: 700 },
+  f3d3QuickBtn: { background: "rgba(124,92,240,.12)", color: "#7c5cf0", border: "1px solid rgba(124,92,240,.35)", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700 },
+  capoNoteBox: { background: "rgba(240,168,48,.06)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginTop: 12 },
+  capoNoteArea: { width: "100%", marginTop: 8, background: "var(--panel)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 8, padding: 10, fontSize: 14, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" },
   hotHint: { fontSize: 10, fontWeight: 400, color: "var(--ink-soft)", marginLeft: 8 },
   d3Row: { display: "flex", alignItems: "center", gap: 10, fontSize: 13, background: "var(--panel-2)", borderRadius: 8, padding: "6px 10px" },
 
@@ -3000,6 +3482,10 @@ const S = {
   // foglio (in-app)
   sheet: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
   sheetTitle: { fontSize: 18, fontWeight: 800, marginBottom: 14, paddingBottom: 10, borderBottom: "2px solid var(--cv)" },
+  calBtn: { background: "var(--c-post)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 14, fontWeight: 700 },
+  calHint: { display: "block", fontSize: 11, color: "var(--ink-soft)", marginTop: 5 },
+  calWarn: { background: "rgba(240,168,48,.14)", border: "1px solid rgba(240,168,48,.45)", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "var(--ink)", marginBottom: 10 },
+  f3d3Badge: { background: "rgba(124,92,240,.12)", border: "1px solid rgba(124,92,240,.35)", borderRadius: 10, padding: "10px 14px", fontSize: 13.5, color: "var(--ink)", marginBottom: 14 },
   sheetHalf: { fontSize: 14, fontWeight: 700, color: "var(--cv)", margin: "0 0 8px" },
   sheetCrews: { display: "flex", flexWrap: "wrap", gap: 10 },
   sheetCrew: { flex: 1, minWidth: 200, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 12 },
