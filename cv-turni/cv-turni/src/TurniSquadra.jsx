@@ -486,7 +486,14 @@ function NotificationButton() {
 }
 
 function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, alerts, saveAlerts, published, assignments, crewsFor, galley, emojis, saveEmojis }) {
-  const [personId, setPersonId] = useState("");
+  // ricorda chi sei tra un'apertura e l'altra (salvato nel browser di questo telefono)
+  const [personId, setPersonIdRaw] = useState(() => {
+    try { return localStorage.getItem("cv:me") || ""; } catch { return ""; }
+  });
+  const setPersonId = (id) => {
+    setPersonIdRaw(id);
+    try { if (id) localStorage.setItem("cv:me", id); else localStorage.removeItem("cv:me"); } catch {}
+  };
 
   const me = people.find((p) => p.id === personId);
   const pById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
@@ -622,6 +629,7 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                 message={published[t.id]?.message}
                 pubInfo={published[t.id]}
                 showCalendar
+                meName={me?.name}
               />
             </div>
           ))}
@@ -760,10 +768,14 @@ function CompagniView({ turni, people, availability, saveAvail, saveMyAvail, ale
                   </div>
                   )}
 
-                  <div style={S.halfRow}>
-                    {!hidePre && <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />}
-                    {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
-                  </div>
+                  {/* i bottoni veloci coprono il caso normale; i selettori per metà restano
+                      solo per chi ha una metà nascosta (es. "solo prima di mezzanotte") */}
+                  {!bothHalves && (
+                    <div style={S.halfRow}>
+                      {!hidePre && <HalfPicker label={halfLabel(t, "pre")} value={cur.pre} onChange={(v) => setDispo(t.id, "pre", v)} />}
+                      {!hidePost && <HalfPicker label={halfLabel(t, "post")} value={cur.post} onChange={(v) => setDispo(t.id, "post", v)} />}
+                    </div>
+                  )}
 
                   {(cur.pre === "ENTRAMBE" || cur.post === "ENTRAMBE") && (
                     <div style={S.mealBox}>
@@ -1344,18 +1356,57 @@ function ArchivioCapo({ turni, people, availability, assignments, crewsFor, publ
 }
 
 /* ---------- generazione PDF (via stampa browser, nessuna libreria) ---------- */
-// genera e scarica un evento calendario (.ics) per un turno, con titolo + equipaggio
-function downloadTurnoICS(turno, sheet) {
+// genera e scarica un evento calendario (.ics) per un turno.
+// Se passo meName, l'orario è quello dell'equipaggio in cui quella persona è stata messa.
+function downloadTurnoICS(turno, sheet, meName) {
   const pad = (n) => String(n).padStart(2, "0");
-  // orari: per la notturna 19:30→07:30 del giorno dopo; per la diurna 07:00→18:30
   const d = turno.date;
   const isDiurna = turno.kind === "diurna";
-  const start = new Date(d); const end = new Date(d);
-  if (isDiurna) { start.setHours(7, 0, 0, 0); end.setHours(18, 30, 0, 0); }
-  else { start.setHours(19, 30, 0, 0); end.setDate(end.getDate() + 1); end.setHours(7, 30, 0, 0); }
-  // formato data per ics (ora locale)
+
+  // helper: imposta un orario "HH:MM" su una data base, gestendo il passaggio a dopo mezzanotte
+  const hhmm = (base, str, isEnd, afterMidnight) => {
+    const m = /(\d{1,2})[:.](\d{2})/.exec(str || "");
+    const x = new Date(base);
+    if (!m) return null;
+    let h = +m[1], mm = +m[2];
+    // 00:00 di fine turno = mezzanotte del giorno dopo
+    if (afterMidnight || (isEnd && h === 0 && mm === 0)) x.setDate(x.getDate() + 1);
+    x.setHours(h, mm, 0, 0);
+    return x;
+  };
+
+  // trovo l'equipaggio (o gli equipaggi) in cui compare la persona, e prendo le fasce
+  let start = null, end = null, mioEqui = "";
+  if (meName) {
+    const fasce = [];
+    (sheet.halves || []).forEach((h) => {
+      h.crews.forEach((c) => {
+        const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => s.name);
+        if (membri.includes(meName)) {
+          // fascia tipo "20:00-00:00" o "00:00-07:30"; half.key pre = prima mezzanotte
+          const mm = /(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/.exec(c.fascia || "");
+          if (mm) {
+            const isPost = h.key === "post";
+            const s = hhmm(d, mm[1], false, isPost);
+            const e = hhmm(d, mm[2], true, isPost);
+            if (s && e) { fasce.push([s, e]); mioEqui = c.name; }
+          }
+        }
+      });
+    });
+    if (fasce.length) {
+      start = fasce.reduce((a, b) => (b[0] < a ? b[0] : a), fasce[0][0]);
+      end = fasce.reduce((a, b) => (b[1] > a ? b[1] : a), fasce[0][1]);
+    }
+  }
+  // se non trovo la persona in nessun equipaggio, uso l'orario pieno del turno
+  if (!start || !end) {
+    start = new Date(d); end = new Date(d);
+    if (isDiurna) { start.setHours(7, 0, 0, 0); end.setHours(18, 30, 0, 0); }
+    else { start.setHours(19, 30, 0, 0); end.setDate(end.getDate() + 1); end.setHours(7, 30, 0, 0); }
+  }
+
   const fmt = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
-  // equipaggio: elenco per la descrizione
   const righe = [];
   (sheet.halves || []).forEach((h) => {
     h.crews.forEach((c) => {
@@ -1364,9 +1415,10 @@ function downloadTurnoICS(turno, sheet) {
     });
   });
   const desc = righe.join("\\n") || "Equipaggio da definire";
-  const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde`;
-  // UID fisso per turno: così riaggiungendolo aggiorna invece di duplicare (sui calendari che lo supportano)
-  const uid = `turno-${turno.id}@croce-verde.vercel.app`;
+  const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde${mioEqui ? ` (${mioEqui})` : ""}`;
+  // UID fisso per turno+persona: così riaggiungendolo aggiorna invece di duplicare
+  const who = meName ? "-" + meName.replace(/[^a-zA-Z0-9]/g, "") : "";
+  const uid = `turno-${turno.id}${who}@croce-verde.vercel.app`;
   const ics = [
     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//TurniSquadra//IT",
     "BEGIN:VEVENT",
@@ -2427,7 +2479,7 @@ function defaultFascia(turno, half) {
 }
 
 // vista del foglio (usata in-app per i compagni)
-function SheetView({ turno, sheet, message, pubInfo, showCalendar }) {
+function SheetView({ turno, sheet, message, pubInfo, showCalendar, meName }) {
   const renderSlot = (role, s) =>
     s ? (
       <div key={role + s.name} style={S.sheetSlot}>
@@ -2452,8 +2504,8 @@ function SheetView({ turno, sheet, message, pubInfo, showCalendar }) {
           {pubInfo?.republished && (
             <div style={S.calWarn}>🔄 Turno aggiornato: se l'avevi già messo in calendario, riaggiungilo per avere la versione giusta.</div>
           )}
-          <button className="tap" style={S.calBtn} onClick={() => downloadTurnoICS(turno, sheet)}>📅 Aggiungi al calendario</button>
-          <span style={S.calHint}>Se il turno cambia, dovrai riaggiungerlo.</span>
+          <button className="tap" style={S.calBtn} onClick={() => downloadTurnoICS(turno, sheet, meName)}>📅 Aggiungi al calendario</button>
+          <span style={S.calHint}>{meName ? "Orario in base al tuo equipaggio. " : ""}Se il turno cambia, dovrai riaggiungerlo.</span>
         </div>
       )}
 
