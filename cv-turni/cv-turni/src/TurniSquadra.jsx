@@ -1420,22 +1420,6 @@ function downloadTurnoICS(turno, sheet, meName) {
   });
   const desc = righe.join("\\n") || "Equipaggio da definire";
   const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde${mioEqui ? ` (${mioEqui})` : ""}`;
-
-  // --- DEBUG temporaneo: mostra cosa ha capito l'app ---
-  const oraStr = (x) => x ? `${pad(x.getDate())}/${pad(x.getMonth() + 1)} ${pad(x.getHours())}:${pad(x.getMinutes())}` : "—";
-  const tuttiMembri = [];
-  (sheet.halves || []).forEach((h) => h.crews.forEach((c) => {
-    [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).forEach((s) => tuttiMembri.push(`${c.name}[${h.key}] «${s.name}» fascia="${c.fascia}"`));
-  }));
-  window.alert(
-    "DEBUG evento calendario\n\n" +
-    "Il tuo nome (meName): «" + (meName || "VUOTO") + "»\n" +
-    "Nome ripulito (meClean): «" + (meClean || "VUOTO") + "»\n" +
-    "Trovato nell'equipaggio: " + (mioEqui || "NESSUNO → uso orario pieno") + "\n" +
-    "Orario calcolato: " + oraStr(start) + " → " + oraStr(end) + "\n\n" +
-    "Membri nel foglio:\n" + tuttiMembri.join("\n")
-  );
-  // --- fine DEBUG ---
   // UID fisso per turno+persona: così riaggiungendolo aggiorna invece di duplicare
   const who = meName ? "-" + meName.replace(/[^a-zA-Z0-9]/g, "") : "";
   const uid = `turno-${turno.id}${who}@croce-verde.vercel.app`;
