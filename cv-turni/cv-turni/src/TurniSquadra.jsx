@@ -1375,14 +1375,18 @@ function downloadTurnoICS(turno, sheet, meName) {
     return x;
   };
 
-  // trovo l'equipaggio (o gli equipaggi) in cui compare la persona, e prendo le fasce
+  // trovo l'equipaggio (o gli equipaggi) in cui compare la persona, e prendo le fasce.
+  // Attenzione: i nomi nel foglio possono avere un'emoji davanti ("🦊 Dugoni Sergio"),
+  // quindi confronto togliendo eventuali emoji/simboli iniziali.
+  const pulisci = (s) => (s || "").replace(/^[^\p{L}]+/u, "").trim();
+  const meClean = pulisci(meName);
   let start = null, end = null, mioEqui = "";
-  if (meName) {
+  if (meClean) {
     const fasce = [];
     (sheet.halves || []).forEach((h) => {
       h.crews.forEach((c) => {
-        const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => s.name);
-        if (membri.includes(meName)) {
+        const membri = [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).map((s) => pulisci(s.name));
+        if (membri.includes(meClean)) {
           // fascia tipo "20:00-00:00" o "00:00-07:30"; half.key pre = prima mezzanotte
           const mm = /(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/.exec(c.fascia || "");
           if (mm) {
@@ -1416,6 +1420,22 @@ function downloadTurnoICS(turno, sheet, meName) {
   });
   const desc = righe.join("\\n") || "Equipaggio da definire";
   const titolo = `${isDiurna ? "Diurna" : "Notturna"} Croce Verde${mioEqui ? ` (${mioEqui})` : ""}`;
+
+  // --- DEBUG temporaneo: mostra cosa ha capito l'app ---
+  const oraStr = (x) => x ? `${pad(x.getDate())}/${pad(x.getMonth() + 1)} ${pad(x.getHours())}:${pad(x.getMinutes())}` : "—";
+  const tuttiMembri = [];
+  (sheet.halves || []).forEach((h) => h.crews.forEach((c) => {
+    [c.autista, c.capo, ...(c.soccorritori || [])].filter(Boolean).forEach((s) => tuttiMembri.push(`${c.name}[${h.key}] «${s.name}» fascia="${c.fascia}"`));
+  }));
+  window.alert(
+    "DEBUG evento calendario\n\n" +
+    "Il tuo nome (meName): «" + (meName || "VUOTO") + "»\n" +
+    "Nome ripulito (meClean): «" + (meClean || "VUOTO") + "»\n" +
+    "Trovato nell'equipaggio: " + (mioEqui || "NESSUNO → uso orario pieno") + "\n" +
+    "Orario calcolato: " + oraStr(start) + " → " + oraStr(end) + "\n\n" +
+    "Membri nel foglio:\n" + tuttiMembri.join("\n")
+  );
+  // --- fine DEBUG ---
   // UID fisso per turno+persona: così riaggiungendolo aggiorna invece di duplicare
   const who = meName ? "-" + meName.replace(/[^a-zA-Z0-9]/g, "") : "";
   const uid = `turno-${turno.id}${who}@croce-verde.vercel.app`;
